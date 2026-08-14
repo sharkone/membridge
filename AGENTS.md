@@ -136,6 +136,15 @@ cargo test
 ./examples/demo.sh
 ```
 
+Release changes additionally require:
+
+```sh
+dist generate --check
+dist plan --tag <version-tag>
+```
+
+Before declaring a release complete, install a published target artifact, verify its checksum and version, install the embedded skill, and exercise inspect, scan, and read through that binary.
+
 Behavioral tests should defend observable contracts:
 
 - target platform rejection;
@@ -156,6 +165,7 @@ For Windows capture/live work, add Windows-native behavioral coverage; cross-com
 ## Documentation and tracking
 
 - `README.md`: current user-facing behavior and examples.
+- `CHANGELOG.md`: shipped release notes and explicit alpha limitations.
 - `PLAN.md`: active engineering decisions and detailed next milestone.
 - `ROADMAP.md`: milestone order and status.
 - GitHub issues: executable units with acceptance criteria.
@@ -164,7 +174,7 @@ Update status immediately when work lands. Do not let README, skill, roadmap, an
 
 ## Git and GitHub
 
-The repository is public and has no redistribution license. Do not change visibility, transfer ownership, publish packages, create releases, or add a redistribution license without explicit user approval.
+The repository is public and dual-licensed under MIT OR Apache-2.0. Do not change visibility, transfer ownership, publish packages, create releases, or change licensing without explicit user approval.
 
 Keep commits focused and buildable. Pull requests must state:
 

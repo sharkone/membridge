@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/sharkone/membridge/actions/workflows/ci.yml/badge.svg)](https://github.com/sharkone/membridge/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 </div>
 
@@ -64,12 +65,33 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 
 ### Requirements
 
-- Stable Rust 1.87 or newer.
 - An authorized Windows x64 user-mode minidump for real analysis.
+- OMP on `PATH` when installing the Agent Skill.
+
+### Install `v0.1.0-alpha.1`
+
+macOS and Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.sh |
+  sh
+
+membridge skill install --omp --force
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.ps1 | iex
+membridge skill install --omp --force
+```
+
+The installers place `membridge` under Cargo's binary directory. Start a new OMP session after installing the skill. Alpha binaries are checksummed but unsigned and not notarized.
 
 ### Install the latest development build
 
-The repository is public but has not published a versioned release. Install the current `main` revision directly from GitHub:
+Install the current `main` revision directly from GitHub:
 
 ```sh
 cargo install \
@@ -80,7 +102,7 @@ cargo install \
 membridge skill install --omp --force
 ```
 
-This requires Rust and OMP on `PATH`. Start a new OMP session after installing the skill.
+Development installation requires Rust and OMP on `PATH`.
 
 ### Build
 
@@ -283,4 +305,4 @@ Repository expectations and invariants are defined in [AGENTS.md](AGENTS.md). Pl
 
 ## Status and licensing
 
-This repository is public and has no redistribution license. Public visibility does not grant redistribution rights; all rights are reserved unless a license is added explicitly. Binary releases and the VMM/MemProcFS integration remain gated on deliberate distribution and license decisions.
+Membridge is licensed under either the [MIT License](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE), at your option. `v0.1.0-alpha.1` is an unsigned testing release. VMM/MemProcFS distribution remains gated on a separate licensing and packaging decision.

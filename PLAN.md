@@ -218,7 +218,9 @@ Installation output reports matching binary and embedded-skill versions. Updates
 
 ### Distribution
 
-The source repository is public, but no redistribution license is granted. Public binary releases, package registries, signing, and installer channels require an explicit distribution decision; source visibility alone does not authorize them.
+Source and binary releases are licensed under `MIT OR Apache-2.0`. The first release channel is a GitHub prerelease with dist-generated archives, SHA-256 checksums, shell and PowerShell installers, and no package-registry publication. Alpha binaries are unsigned and not notarized.
+
+Installers place the binary under Cargo's binary directory. OMP integration remains an explicit second step through `membridge skill install --omp`; the binary performs no update checks or background network access.
 
 ### Network behavior
 
@@ -238,7 +240,7 @@ A capability is complete only when:
 
 ## Open decisions
 
-- Redistribution license and public release/package channels.
+- Signing, notarization, and public package registries after alpha validation.
 - Numeric resource defaults after representative large-dump benchmarks.
 - At-rest encryption if sessions become a team feature.
 - The exact VMM licensing and packaging model.
