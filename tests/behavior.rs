@@ -395,6 +395,47 @@ printf tampered > "$output"
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn powershell_bootstrap_skips_a_matching_binary_without_network() {
+    let temp = tempdir().unwrap();
+    let fake_bin = temp.path().join("bin");
+    fs::create_dir(&fake_bin).unwrap();
+    fs::write(
+        fake_bin.join("membridge.cmd"),
+        format!(
+            "@echo off\r\necho membridge {}\r\nexit /b 0\r\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+
+    let inherited_path = std::env::var_os("PATH").unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(fake_bin.as_path()).chain(std::env::split_paths(&inherited_path)),
+    )
+    .unwrap();
+    let powershell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".agents/skills/membridge/scripts/install.ps1");
+    let output = std::process::Command::new(powershell)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(bootstrap)
+        .env("PATH", path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("is already installed"));
+}
+
 #[test]
 fn cli_help_and_version_flags_exit_successfully() {
     let version = Command::cargo_bin("membridge")
