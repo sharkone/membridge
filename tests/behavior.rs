@@ -412,7 +412,7 @@ fn powershell_bootstrap_skips_a_matching_binary_without_network() {
 
     let inherited_path = std::env::var_os("PATH").unwrap();
     let path = std::env::join_paths(
-        std::iter::once(fake_bin.as_path()).chain(std::env::split_paths(&inherited_path)),
+        std::iter::once(fake_bin.clone()).chain(std::env::split_paths(&inherited_path)),
     )
     .unwrap();
     let powershell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
