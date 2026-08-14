@@ -9,15 +9,15 @@ This document describes milestone order. GitHub issues contain implementation ta
 | Milestone | State | Outcome | Tracking |
 |---|---|---|---|
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
-| M1: Project and Agent Skill | Active | Maintained repository, embedded portable skill, CI, examples, issue tracking | — |
-| M2: Windows minidump capture | Planned | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
-| M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches | [#9](https://github.com/sharkone/membridge/issues/9) |
+| M1: Project and Agent Skill | Maintenance | Maintained repository, embedded skill, CI, examples, and explicit coverage limitations | [#10](https://github.com/sharkone/membridge/issues/10) |
+| M2: Windows minidump capture | Active | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
+| M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
 | M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
 | M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing | [#8](https://github.com/sharkone/membridge/issues/8) |
 | M7: Stable pointer chains | Planned | Bounded module-rooted paths validated across snapshots | [#6](https://github.com/sharkone/membridge/issues/6) |
 | M8: VMM-backed acquisition | Research gate | System dumps, WinPMEM, VM, remote, and DMA sources | [#3](https://github.com/sharkone/membridge/issues/3) |
-| M9: Optional analysis engines | Future | YARA, heap/runtime enrichment, snapshot modes | — |
+| M9: Optional analysis metadata and engines | Future | Bounded crash/debug identity handoff, YARA, and runtime enrichment | [#11](https://github.com/sharkone/membridge/issues/11) |
 | M10: Explicit mutation mode | Separate security track | Target-scoped process writes outside the default daemon | — |
 
 ## M0: Offline vertical slice
@@ -52,6 +52,7 @@ Deliverables:
 - macOS, Linux, and Windows CI;
 - issue and pull-request templates;
 - milestone issues with acceptance criteria.
+- stable source-derived limitation codes for incomplete metadata and coverage.
 
 Exit criteria:
 
@@ -60,6 +61,7 @@ Exit criteria:
 - the installed skill matches the version embedded in the binary;
 - repository visibility is private;
 - branch CI is running.
+- incomplete coverage reports a deterministic reason rather than relying on booleans alone.
 
 ## M2: Windows minidump capture
 
@@ -93,8 +95,10 @@ Add compact mechanisms needed by skills:
 - explicit UTF-8 and UTF-16LE strings;
 - masked bytes;
 - one-pass tagged batches across kinds.
+- deterministic module, region, address-range, and metadata-backed protection/type scopes.
 
 Keep transformations caller-controlled. Base64, XOR, compression, and project formats are skill workflows, not implicit engine policy.
+Scope selectors compose by intersection, remain bounded, and fail explicitly when required metadata is unavailable.
 
 ## M4: Stateful daemon and result sets
 
@@ -168,16 +172,19 @@ Gates:
 - native-library crash and isolation strategy;
 - no dependency on the mounted MemProcFS filesystem.
 
-## M9: Optional analysis engines
+## M9: Optional analysis metadata and engines
 
 Candidates after core acquisition and refinement are stable:
 
+- bounded minidump crash seed: exception metadata, crashing thread ID, core x64 instruction/stack/frame pointers, and module/RVA attribution;
+- module CodeView debug identity for caller-controlled symbolizer handoff;
 - YARA-X;
 - Windows heap allocation attribution;
 - language/runtime-specific object helpers;
 - PSS stable snapshots;
-- dedicated symbolizer handoff;
 - local session explorer consuming the same JSON contract.
+
+Crash metadata remains an optional offline aid, not a prerequisite for live reads. Membridge does not unwind stacks, disassemble instructions, infer root causes, download symbols, or contact symbol servers.
 
 These remain optional layers, not requirements for the core CLI.
 

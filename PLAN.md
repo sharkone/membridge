@@ -101,8 +101,10 @@ Extend scan specifications without introducing a general expression language:
 - UTF-8 and UTF-16LE strings;
 - byte/nibble masks;
 - tagged batching across all kinds.
+- explicit module, region, address-range, and metadata-backed protection/type scan scopes.
 
 No automatic secret classification or implicit transformations.
+Scopes compose by deterministic intersection. A scope that depends on unavailable metadata fails explicitly rather than guessing; no general filter expression language is introduced.
 
 ### Stateful daemon and result sets
 
@@ -164,6 +166,17 @@ After the source boundary survives direct Windows access:
 
 Use VMM APIs rather than the mounted MemProcFS filesystem. Do not begin distribution until AGPL/commercial licensing has been resolved deliberately.
 
+### Optional analysis metadata and engines
+
+Add bounded, source-derived metadata that improves offline handoff without turning Membridge into a crash analyzer:
+
+- optional minidump exception code, flags, address, parameters, crashing thread ID, and core x64 instruction/stack/frame pointers;
+- module and RVA attribution for the captured fault address;
+- module CodeView debug-file and debug-identifier metadata for caller-controlled symbol handoff;
+- future optional YARA-X, heap/runtime enrichment, and snapshot modes only after the core acquisition and refinement workflows are stable.
+
+Membridge does not unwind stacks, disassemble instructions, infer root causes, download symbols, or contact symbol servers. Crash metadata is useful for captured dumps but remains optional and lower priority than live reads, refinement, and pointer workflows.
+
 ## Engineering decisions
 
 ### Source boundary
@@ -177,6 +190,7 @@ Virtual addresses are serialized as fixed-width hexadecimal strings. They must n
 ### Coverage
 
 Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion.
+When completeness is unproven, stable limitation codes identify the missing or unusable metadata that prevents a stronger claim.
 
 ### Resource limits
 
