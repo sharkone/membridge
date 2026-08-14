@@ -74,6 +74,17 @@ impl MemoryRegion {
     }
 }
 
+pub const MAX_COVERAGE_LIMITATIONS: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CoverageLimitation {
+    MemoryMetadataMissing,
+    MemoryMetadataUnusable,
+    ExpectedReadableScopeUnproven,
+    KnownReadableBytesMissing,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Coverage {
     pub expected_readable_bytes: u64,
@@ -81,6 +92,7 @@ pub struct Coverage {
     pub unavailable_readable_bytes: u64,
     pub metadata_complete: bool,
     pub coverage_complete: bool,
+    pub limitations: Vec<CoverageLimitation>,
 }
 
 #[derive(Debug, Clone)]

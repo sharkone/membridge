@@ -9,7 +9,7 @@ This document describes milestone order. GitHub issues contain implementation ta
 | Milestone | State | Outcome | Tracking |
 |---|---|---|---|
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
-| M1: Project and Agent Skill | Maintenance | Maintained repository, embedded skill, CI, examples, and explicit coverage limitations | [#10](https://github.com/sharkone/membridge/issues/10) |
+| M1: Project and Agent Skill | Complete | Maintained repository, embedded skill, CI, examples, and explicit coverage limitations | [#10](https://github.com/sharkone/membridge/issues/10) |
 | M2: Windows minidump capture | Active | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
 | M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
@@ -42,7 +42,7 @@ Exit evidence:
 
 ## M1: Project and Agent Skill
 
-Deliverables:
+Delivered:
 
 - private GitHub repository;
 - maintained README, plan, roadmap, and AGENTS guidance;
@@ -51,16 +51,16 @@ Deliverables:
 - runnable fixture demo and reusable specifications;
 - macOS, Linux, and Windows CI;
 - issue and pull-request templates;
-- milestone issues with acceptance criteria.
+- milestone issues with acceptance criteria;
 - stable source-derived limitation codes for incomplete metadata and coverage.
 
-Exit criteria:
+Exit evidence:
 
 - a fresh checkout can build, test, run the demo, and install the skill;
 - OMP discovers the repository skill;
 - the installed skill matches the version embedded in the binary;
 - repository visibility is private;
-- branch CI is running.
+- branch CI is running;
 - incomplete coverage reports a deterministic reason rather than relying on booleans alone.
 
 ## M2: Windows minidump capture

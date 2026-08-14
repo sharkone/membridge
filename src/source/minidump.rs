@@ -6,11 +6,14 @@ use std::sync::Arc;
 use memmap2::Mmap;
 use minidump::format::{MemoryProtection, MemoryState, MemoryType};
 use minidump::system_info::{Cpu, Os};
-use minidump::{Minidump, MinidumpMemoryInfoList, MinidumpModuleList, MinidumpSystemInfo, Module};
+use minidump::{
+    Error as MinidumpError, Minidump, MinidumpMemoryInfoList, MinidumpModuleList,
+    MinidumpSystemInfo, Module,
+};
 
 use super::{
-    Address, Coverage, MemoryRegion, MemorySource, ModuleInfo, ProcessInfo, ProcessMemory,
-    ReadSegment, SourceInfo,
+    Address, Coverage, CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemoryRegion, MemorySource,
+    ModuleInfo, ProcessInfo, ProcessMemory, ReadSegment, SourceInfo,
 };
 use crate::{Error, Result};
 
@@ -123,7 +126,14 @@ impl MinidumpSource {
             })
             .unwrap_or_default();
 
-        let memory_info = dump.get_stream::<MinidumpMemoryInfoList>().ok();
+        let (memory_info, memory_metadata_limitation) =
+            match dump.get_stream::<MinidumpMemoryInfoList>() {
+                Ok(info) => (Some(info), None),
+                Err(MinidumpError::StreamNotFound) => {
+                    (None, Some(CoverageLimitation::MemoryMetadataMissing))
+                }
+                Err(_) => (None, Some(CoverageLimitation::MemoryMetadataUnusable)),
+            };
         let metadata_complete = memory_info.is_some();
         let regions: Vec<MemoryRegion> = if let Some(info) = memory_info.as_ref() {
             info.by_addr()
@@ -181,12 +191,23 @@ impl MinidumpSource {
             .ok_or_else(|| {
                 Error::SourceInvariant("captured bytes exceed expected readable bytes".into())
             })?;
+        let mut limitations = Vec::with_capacity(MAX_COVERAGE_LIMITATIONS);
+        if let Some(limitation) = memory_metadata_limitation {
+            limitations.push(limitation);
+            limitations.push(CoverageLimitation::ExpectedReadableScopeUnproven);
+        }
+        if unavailable_readable_bytes != 0 {
+            limitations.push(CoverageLimitation::KnownReadableBytesMissing);
+        }
+        debug_assert!(limitations.len() <= MAX_COVERAGE_LIMITATIONS);
+
         let coverage = Coverage {
             expected_readable_bytes,
             captured_readable_bytes,
             unavailable_readable_bytes,
             metadata_complete,
             coverage_complete: metadata_complete && unavailable_readable_bytes == 0,
+            limitations,
         };
 
         let scannable = build_scan_extents(&data, &captured, &regions)?;

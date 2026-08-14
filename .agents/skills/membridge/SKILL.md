@@ -36,6 +36,7 @@ Read these fields before making claims:
 - `data.coverage.metadata_complete`
 - `data.coverage.coverage_complete`
 - `data.coverage.unavailable_readable_bytes`
+- `data.coverage.limitations`
 - `data.regions`
 - `data.modules`
 
@@ -65,6 +66,15 @@ Inspect:
 `terminal_reason: "match_limit"` means the returned matches are a deterministic prefix, not the complete result. Narrow the pattern or scan scope when scope filters become available; do not report an exhaustive count.
 
 `coverage_complete: false` means absence is unproven even when `scan_complete` is true.
+
+`coverage.limitations` is a deterministically ordered list with at most four stable codes:
+
+- `MEMORY_METADATA_MISSING`: no memory-information stream was captured;
+- `MEMORY_METADATA_UNUSABLE`: the stream exists but cannot be parsed;
+- `EXPECTED_READABLE_SCOPE_UNPROVEN`: the source cannot establish every expected readable byte;
+- `KNOWN_READABLE_BYTES_MISSING`: known readable bytes are absent; use `unavailable_readable_bytes` for the exact known count.
+
+Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. Zero unavailable bytes does not prove complete coverage in that state.
 
 ### 4. Inspect only promising matches
 
