@@ -98,7 +98,7 @@ The no-access decoy is excluded, and coverage reports 4,096 unavailable readable
 membridge inspect <dump>
 membridge scan <dump> --spec <path|->
 membridge read <dump> --address <address> [--length <1..65536>]
-membridge skill install --target <skills-root> [--force]
+membridge skill install (--omp | --target <skills-root>) [--force]
 ```
 
 All commands emit one JSON object. Success responses have:
@@ -192,21 +192,31 @@ Reads return one or more valid segments. `complete: false` means some requested 
 
 ## Agent Skill
 
-The canonical skill lives at [.agents/skills/membridge](.agents/skills/membridge). OMP discovers it directly in this repository.
+The canonical portable skill lives at [.agents/skills/membridge](.agents/skills/membridge). OMP discovers it directly in this repository through its Agent Skills provider.
 
-The binary embeds the same files at compile time. Install the matching skill elsewhere with:
+The binary embeds the same files at compile time. To install the version-matched skill into the active OMP-native user profile:
+
+```sh
+membridge skill install --omp
+```
+
+This runs `omp config path`, then installs under that agent directory:
+
+```text
+<active-omp-agent-dir>/skills/membridge/
+  SKILL.md
+  examples/canary-batch.json
+```
+
+OMP must be on `PATH`. Delegating path discovery to OMP honors its active profile and configured agent directory. Missing OMP reports `OMP_NOT_FOUND`; invalid or failed discovery reports `OMP_DISCOVERY_FAILED`.
+
+For another Agent Skills-compatible client, provide its skills root explicitly:
 
 ```sh
 membridge skill install --target ~/.agents/skills
 ```
 
-This creates:
-
-```text
-~/.agents/skills/membridge/
-  SKILL.md
-  examples/canary-batch.json
-```
+Installation output includes `binary_version` and `skill_version`; they are identical because the skill is embedded at compile time. Installed copies do not update automatically. After updating the binary, rerun the command with `--force`, then start a new OMP session.
 
 The skill teaches coverage-first scanning, deterministic representation generation, bounded reads, and evidence language. It contains no unimplemented roadmap commands.
 
