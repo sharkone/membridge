@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
+use membridge::capture;
 use membridge::protocol::{Failure, Success};
 use membridge::scan::{ScanReport, ScanSpec, scan};
 use membridge::skill;
@@ -48,6 +49,24 @@ enum Command {
         #[command(subcommand)]
         command: SkillCommand,
     },
+    /// Capture a live process into a Windows x64 minidump.
+    Capture {
+        #[command(subcommand)]
+        command: CaptureCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CaptureCommand {
+    /// Capture a full-memory user-mode minidump of a running process. Windows only.
+    Minidump {
+        #[arg(long)]
+        pid: u32,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -66,6 +85,7 @@ impl Command {
             Self::Scan { .. } => "scan",
             Self::Read { .. } => "read",
             Self::Skill { .. } => "skill.install",
+            Self::Capture { .. } => "capture.minidump",
         }
     }
 }
@@ -197,6 +217,12 @@ fn run(command: Command) -> Result<serde_json::Value> {
         } => {
             let report = skill::install(force)?;
             serde_json::to_value(Success::new("skill.install", report)).map_err(Error::from)
+        }
+        Command::Capture {
+            command: CaptureCommand::Minidump { pid, output, force },
+        } => {
+            let report = capture::capture_minidump(pid, &output, force)?;
+            serde_json::to_value(Success::new("capture.minidump", report)).map_err(Error::from)
         }
     }
 }

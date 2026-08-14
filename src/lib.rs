@@ -1,3 +1,4 @@
+pub mod capture;
 mod error;
 pub mod protocol;
 pub mod scan;

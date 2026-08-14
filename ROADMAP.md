@@ -11,7 +11,7 @@ This document describes milestone order. GitHub issues contain implementation ta
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
 | M1: Project and Agent Skill | Complete | Maintained public repository, embedded skill, CI, examples, explicit coverage limitations, and alpha release packaging | [#10](https://github.com/sharkone/membridge/issues/10), [#15](https://github.com/sharkone/membridge/issues/15), [#18](https://github.com/sharkone/membridge/issues/18), [#22](https://github.com/sharkone/membridge/issues/22) |
 | M2: Windows minidump capture | Active | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
-| M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
+| M3: Typed deterministic patterns | Active | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
 | M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
 | M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing | [#8](https://github.com/sharkone/membridge/issues/8) |

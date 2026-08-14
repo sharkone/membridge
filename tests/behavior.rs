@@ -308,12 +308,28 @@ fn cli_installs_the_version_matched_agent_skill() {
         installed_powershell,
         include_str!("../.agents/skills/membridge/scripts/install.ps1")
     );
-    let version = env!("CARGO_PKG_VERSION");
-    assert!(installed_skill.contains(&format!("`membridge {version}`")));
-    assert!(installed_shell.contains(&format!("VERSION=\"{version}\"")));
-    assert!(installed_shell.contains(&format!("releases/download/v{version}/")));
-    assert!(installed_powershell.contains(&format!("$Version = '{version}'")));
-    assert!(installed_powershell.contains(&format!("releases/download/v{version}/")));
+    // The embedded bootstrap scripts pin the latest *published* release, which
+    // can lag behind this crate's own version between a bump and actually
+    // cutting that release (see AGENTS.md). Assert each script is internally
+    // self-consistent - its declared version and its download URL agree -
+    // rather than hardcoding a version literal here that would silently drift.
+    let shell_version = installed_shell
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("VERSION=\"")
+                .and_then(|rest| rest.strip_suffix('"'))
+        })
+        .expect("install.sh declares VERSION=\"...\"");
+    assert!(installed_shell.contains(&format!("releases/download/v{shell_version}/")));
+    let powershell_version = installed_powershell
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("$Version = '")
+                .and_then(|rest| rest.strip_suffix('\''))
+        })
+        .expect("install.ps1 declares $Version = '...'");
+    assert!(installed_powershell.contains(&format!("releases/download/v{powershell_version}/")));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -372,21 +388,29 @@ printf tampered > "$output"
     let mut permissions = fs::metadata(&fake_curl).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_curl, permissions).unwrap();
+    // The bootstrap script pins its own "already installed" version
+    // independent of this crate's `CARGO_PKG_VERSION` (see AGENTS.md); read it
+    // from the real script instead of hardcoding a literal that would drift.
+    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".agents/skills/membridge/scripts/install.sh");
+    let bootstrap_source = fs::read_to_string(&bootstrap).unwrap();
+    let pinned_version = bootstrap_source
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("VERSION=\"")
+                .and_then(|rest| rest.strip_suffix('"'))
+        })
+        .expect("install.sh declares VERSION=\"...\"");
     let fake_membridge = fake_bin.join("membridge");
     fs::write(
         &fake_membridge,
-        format!(
-            "#!/bin/sh\nprintf 'membridge {}\\n'\n",
-            env!("CARGO_PKG_VERSION")
-        ),
+        format!("#!/bin/sh\nprintf 'membridge {pinned_version}\\n'\n"),
     )
     .unwrap();
     let mut permissions = fs::metadata(&fake_membridge).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_membridge, permissions).unwrap();
 
-    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(".agents/skills/membridge/scripts/install.sh");
     let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", fake_bin.display());
     let skipped = std::process::Command::new("sh")
         .arg(&bootstrap)
@@ -417,9 +441,24 @@ fn powershell_bootstrap_skips_a_matching_binary_without_network() {
     let temp = tempdir().unwrap();
     let fake_bin = temp.path().join("bin");
     fs::create_dir(&fake_bin).unwrap();
-    fs::copy(
-        env!("CARGO_BIN_EXE_membridge"),
-        fake_bin.join("membridge.exe"),
+
+    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".agents/skills/membridge/scripts/install.ps1");
+    // The bootstrap script pins its own "already installed" version
+    // independent of this crate's `CARGO_PKG_VERSION` (see AGENTS.md); read it
+    // from the real script instead of hardcoding a literal that would drift.
+    let bootstrap_source = fs::read_to_string(&bootstrap).unwrap();
+    let pinned_version = bootstrap_source
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("$Version = '")
+                .and_then(|rest| rest.strip_suffix('\''))
+        })
+        .expect("install.ps1 declares $Version = '...'");
+    fs::write(
+        fake_bin.join("membridge.cmd"),
+        format!("@echo off\r\necho membridge {pinned_version}\r\n"),
     )
     .unwrap();
 
@@ -430,8 +469,6 @@ fn powershell_bootstrap_skips_a_matching_binary_without_network() {
     .unwrap();
     let powershell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
         .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(".agents/skills/membridge/scripts/install.ps1");
     let output = std::process::Command::new(powershell)
         .args([
             "-NoProfile",
@@ -545,7 +582,7 @@ fn portable_marketplace_exposes_the_canonical_versioned_skill() {
     let catalog: Value =
         serde_json::from_str(include_str!("../.claude-plugin/marketplace.json")).unwrap();
     assert_eq!(catalog["name"], "membridge");
-    let plugin_version = format!("{}.skill.2", env!("CARGO_PKG_VERSION"));
+    let plugin_version = format!("{}.skill.1", env!("CARGO_PKG_VERSION"));
     assert_eq!(catalog["metadata"]["version"], plugin_version);
 
     let plugin = &catalog["plugins"][0];
@@ -563,6 +600,151 @@ fn portable_marketplace_exposes_the_canonical_versioned_skill() {
         marketplace_skill,
         include_str!("../.agents/skills/membridge/SKILL.md")
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn capture_minidump_reports_unsupported_host_off_windows() {
+    let temp = tempdir().unwrap();
+    let output_path = temp.path().join("capture.dmp");
+
+    let failure = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["capture", "minidump", "--pid"])
+        .arg(std::process::id().to_string())
+        .arg("--output")
+        .arg(&output_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let failure: Value = serde_json::from_slice(&failure).unwrap();
+    assert_eq!(failure["command"], "capture.minidump");
+    assert_eq!(failure["error"]["code"], "UNSUPPORTED_HOST");
+    assert!(!output_path.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
+    use std::io::{BufRead, BufReader};
+
+    let temp = tempdir().unwrap();
+    let output_path = temp.path().join("capture.dmp");
+
+    let mut target = std::process::Command::new(env!("CARGO_BIN_EXE_synthetic-capture-target"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut reader = BufReader::new(target.stdout.take().unwrap());
+    let mut ready_line = String::new();
+    reader.read_line(&mut ready_line).unwrap();
+    assert!(
+        ready_line.starts_with("READY"),
+        "unexpected target output: {ready_line}"
+    );
+    let readable_address = ready_line
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("readable=0x"))
+        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+        .expect("READY line carries a readable= address");
+
+    let before_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    let captured = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["capture", "minidump", "--pid"])
+        .arg(target.id().to_string())
+        .arg("--output")
+        .arg(&output_path)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let captured: Value = serde_json::from_slice(&captured).unwrap();
+    assert_eq!(captured["command"], "capture.minidump");
+    assert_eq!(captured["schema"], 2);
+    let data = &captured["data"];
+    assert_eq!(data["process"]["pid"].as_u64().unwrap(), target.id() as u64);
+    assert!(
+        data["process"]["image_path"]
+            .as_str()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("synthetic-capture-target")
+    );
+    assert!(data["process"]["creation_time_unix_ms"].as_u64().unwrap() <= before_unix_ms);
+    let started = data["interval"]["started_at_unix_ms"].as_u64().unwrap();
+    let completed = data["interval"]["completed_at_unix_ms"].as_u64().unwrap();
+    assert!(started >= before_unix_ms);
+    assert!(completed >= started);
+    assert_eq!(
+        data["flags"],
+        serde_json::json!([
+            "MiniDumpWithFullMemory",
+            "MiniDumpWithFullMemoryInfo",
+            "MiniDumpWithThreadInfo",
+            "MiniDumpWithProcessThreadData",
+            "MiniDumpWithUnloadedModules",
+            "MiniDumpIgnoreInaccessibleMemory"
+        ])
+    );
+    assert_eq!(data["warnings"], serde_json::json!([]));
+    assert_eq!(data["output"], output_path.to_string_lossy().as_ref());
+    assert_eq!(data["source"]["platform"], "windows");
+    assert_eq!(data["source"]["architecture"], "x86_64");
+
+    let conflict = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["capture", "minidump", "--pid"])
+        .arg(target.id().to_string())
+        .arg("--output")
+        .arg(&output_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let conflict: Value = serde_json::from_slice(&conflict).unwrap();
+    assert_eq!(conflict["error"]["code"], "INVALID_ARGUMENT");
+
+    Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["capture", "minidump", "--pid"])
+        .arg(target.id().to_string())
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--force")
+        .assert()
+        .success();
+
+    drop(target.stdin.take());
+    let _ = target.wait();
+
+    let source = MinidumpSource::open(&output_path).unwrap();
+    assert_eq!(source.info().platform, "windows");
+    let process = source.open_process(&source.processes()[0].id).unwrap();
+    assert!(process.coverage().captured_readable_bytes > 0);
+
+    let scan_spec = ScanSpec {
+        schema: 1,
+        patterns: vec![ExactPatternSpec {
+            tag: "capture-canary".into(),
+            bytes_hex: hex::encode(b"MBRIDGE-CAPTURE-READABLE!!"),
+            alignment: 1,
+        }],
+        max_matches: 10,
+    };
+    let report = scan(process.as_ref(), &scan_spec).unwrap();
+    assert_eq!(report.matches.len(), 1);
+    assert_eq!(report.matches[0].address.0, readable_address);
 }
 
 fn spec(max_matches: usize, patterns: Vec<ExactPatternSpec>) -> ScanSpec {

@@ -71,6 +71,7 @@ src/error.rs             stable internal errors and protocol codes
 src/protocol.rs          schema-v2 JSON envelopes
 src/source/mod.rs        read-only acquisition-neutral traits and models
 src/source/minidump.rs   Windows x64 minidump adapter
+src/capture.rs           Windows-only MiniDumpWriteDump live-process capture
 src/scan.rs              deterministic exact-byte scanner
 src/skill.rs             embedded version-matched skill installer
 src/main.rs              public CLI
@@ -123,11 +124,11 @@ Requirements:
 - examples contain no real secrets;
 - installation tests must prove embedded files equal repository files;
 - every binary version or observable CLI change must update the canonical skill in the same change;
-- bootstrap scripts must pin the matching binary version and authenticate executable downloads before execution; do not introduce a self-referential checksum cycle when the binary embeds its own bootstrap;
+- bootstrap scripts pin the latest *published* release version, checksum, and download URL, not necessarily `CARGO_PKG_VERSION`; a version bump may briefly precede the matching release, and bootstrap scripts must never reference a version with no published, checksummed archive; and they must authenticate every executable download before execution;
 - OMP discovery must be verified when skill layout changes;
 - the marketplace plugin source remains `./.agents`, never a copied skill tree;
 - catalog and plugin versions must match each other and use `<binary-version>.skill.<revision>`;
-- increment the skill revision for marketplace-visible skill changes without a binary version bump;
+- increment the skill revision for marketplace-visible skill changes without a binary version bump; reset it to `1` when the binary version changes;
 - local OMP marketplace install, discovery, and upgrade must be exercised when marketplace metadata changes.
 
 Never maintain a second hand-copied skill tree.

@@ -35,6 +35,7 @@ flowchart LR
 ## Current capabilities
 
 - Windows x64 `Memory64ListStream` and `MemoryListStream` minidumps.
+- Windows-only live-process capture into a full-memory minidump, published atomically and imported automatically.
 - Memory-mapped, zero-copy scanning of captured bytes.
 - BLAKE3 source fingerprints.
 - Region state, protection, type, and capture coverage.
@@ -51,7 +52,7 @@ flowchart LR
 
 Membridge does not currently:
 
-- capture or attach to running processes;
+- attach to or live-scan running processes (only a one-shot Windows capture is supported);
 - write, allocate, protect, suspend, or execute memory;
 - resolve PDB symbols;
 - disassemble or infer structures;
@@ -135,6 +136,7 @@ membridge inspect <dump>
 membridge scan <dump> --spec <path|->
 membridge read <dump> --address <address> [--length <1..65536>]
 membridge skill install [--force]
+membridge capture minidump --pid <pid> --output <path> [--force]
 ```
 
 Command execution emits one compact JSON object. Standard metadata flags such as `--help` and `--version` print text and exit successfully. Success responses have:
@@ -226,6 +228,24 @@ membridge read capture.dmp \
 
 Reads return one or more valid segments. `complete: false` means some requested bytes were absent. Never concatenate separated segments as if they were contiguous memory.
 
+## Capture a live process (Windows only)
+
+```sh
+membridge capture minidump --pid 4104 --output capture.dmp
+```
+
+`capture minidump` opens only the requested process with read-only rights, calls `MiniDumpWriteDump` with a full-memory profile, publishes the result atomically, and immediately imports it. Every other host returns `UNSUPPORTED_HOST`. An existing `--output` path is left untouched unless `--force` is passed.
+
+The response reports:
+
+- `data.process`: PID, resolved image path, and process creation time;
+- `data.interval`: capture start and completion timestamps;
+- `data.flags`: the exact `MiniDumpWriteDump` profile used;
+- `data.warnings`: bounded, stable capture-time conditions such as `PROCESS_ALREADY_EXITED`;
+- `data.source` and `data.coverage`: identical in shape to `inspect`, computed by re-opening the published file, so the report never has to be trusted blindly.
+
+Feed the resulting file straight into `inspect`, `scan`, or `read`; capture never scans or reads memory itself.
+
 ## Agent Skill
 
 The canonical portable skill lives at [.agents/skills/membridge](.agents/skills/membridge). Agent Skills clients can discover it directly from this repository, and the binary embeds the same files at compile time.
@@ -308,6 +328,7 @@ Only use Membridge on processes and captures you are authorized to inspect.
 
 ```text
 src/source/       acquisition-neutral read-only interfaces and minidump adapter
+src/capture.rs    Windows-only MiniDumpWriteDump live-process capture
 src/scan.rs       deterministic tagged exact-byte scanner
 src/protocol.rs   schema-v2 success and failure envelopes
 src/skill.rs      version-matched embedded skill installer

@@ -24,6 +24,10 @@ pub enum Error {
     SourceInvariant(String),
     #[error("minidump source exceeds a processing limit: {0}")]
     SourceTooLarge(String),
+    #[error("unsupported host: {0}")]
+    UnsupportedHost(String),
+    #[error("capture failed: {0}")]
+    CaptureFailed(String),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -40,6 +44,8 @@ impl Error {
             Self::HomeDirectoryUnavailable(_) => "HOME_DIRECTORY_UNAVAILABLE",
             Self::SourceInvariant(_) => "SOURCE_INVARIANT",
             Self::SourceTooLarge(_) => "SOURCE_TOO_LARGE",
+            Self::UnsupportedHost(_) => "UNSUPPORTED_HOST",
+            Self::CaptureFailed(_) => "CAPTURE_FAILED",
             Self::Json(_) => "INVALID_JSON",
         }
     }

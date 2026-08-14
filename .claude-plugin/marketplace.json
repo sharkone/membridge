@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Official Membridge plugins for process-memory inspection",
-    "version": "0.1.0-alpha.1.skill.2"
+    "version": "0.1.0-alpha.2.skill.1"
   },
   "plugins": [
     {
       "name": "membridge",
       "description": "Inspect and deterministically scan authorized Windows x64 process minidumps",
-      "version": "0.1.0-alpha.1.skill.2",
+      "version": "0.1.0-alpha.2.skill.1",
       "author": {
         "name": "sharkone"
       },

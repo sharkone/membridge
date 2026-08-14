@@ -1,6 +1,6 @@
 ---
 name: membridge
-description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding known byte representations, checking memory coverage, attributing addresses, or reading small windows around matches.
+description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding known byte representations, checking memory coverage, attributing addresses, reading small windows around matches, or capturing a live Windows process into an analyzable minidump.
 compatibility: Requires the version-matched membridge executable on PATH.
 ---
 
@@ -10,9 +10,9 @@ Membridge exposes deterministic mechanics for authorized process-memory captures
 
 ## Binary availability
 
-This skill requires the version-matched `membridge 0.1.0-alpha.1` executable on `PATH`. Check `membridge --version` before using it.
+This skill requires a version-matched `membridge` executable on `PATH`: the exact binary that was compiled alongside this skill copy, since `membridge skill install` always installs a skill from the same build as the binary it ships in. Run `membridge --version` first.
 
-If the executable is missing or has another version, offer to run the bootstrap script for the host platform. Resolve `scripts/` relative to this `SKILL.md`, not the caller's project directory. Explain that it downloads and installs executable code, and run it only after explicit user approval:
+If the executable is missing, or a documented command such as `capture` is absent from `membridge --help`, offer to run the bootstrap script for the host platform. Resolve `scripts/` relative to this `SKILL.md`, not the caller's project directory. Explain that it downloads and installs executable code, and run it only after explicit user approval. The bootstrap installs the latest published release, which can briefly lag behind this skill between a version bump and that release actually shipping; if a gap remains after bootstrapping, say so plainly instead of retrying the bootstrap.
 
 ```sh
 sh scripts/install.sh
@@ -96,6 +96,16 @@ membridge read <capture.dmp> --address <virtual-address> --length <bytes>
 
 `read` returns captured segments beginning at the requested address. The default length is 256 bytes and the hard limit is 65,536 bytes. Separate segments identify gaps; `complete: false` means the requested range was not fully captured.
 
+### Capture a live process (Windows only)
+
+```sh
+membridge capture minidump --pid <pid> --output <capture.dmp> [--force]
+```
+
+`capture` opens only the requested process with read-only rights, calls `MiniDumpWriteDump` with a full-memory profile, publishes the result atomically, and immediately imports it. Every host other than Windows returns `UNSUPPORTED_HOST`. An existing `--output` path is refused unless `--force` is passed.
+
+The response includes captured process identity (PID, image path, creation time), the capture interval, the exact `MiniDumpWriteDump` flag profile used, bounded capture-time `warnings` such as `PROCESS_ALREADY_EXITED`, and the same `source`/`coverage` shape `inspect` reports, computed by re-opening the published file. Feed the resulting path straight into `inspect`, `scan`, or `read`.
+
 ## Analyses enabled by the current tool
 
 Callers can form explicit bytes and use Membridge to locate:
@@ -138,11 +148,11 @@ Addresses, region offsets, and module RVAs are all fixed-width hexadecimal strin
 
 ## Current boundary
 
-Membridge currently supports Windows x64 user-mode minidumps containing `Memory64ListStream` or `MemoryListStream`.
+Membridge currently supports Windows x64 user-mode minidumps containing `Memory64ListStream` or `MemoryListStream`, and can capture one directly from a running Windows process.
 
 It does not currently:
 
-- capture or attach to processes;
+- attach to or live-scan a running process (only a one-shot Windows capture is supported);
 - write, allocate, protect, suspend, or execute memory;
 - decode typed values;
 - resolve symbols or disassemble instructions;

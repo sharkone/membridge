@@ -42,7 +42,8 @@ The first vertical slice is complete:
 - synthetic behavioral fixture;
 - stable source-derived coverage limitation codes;
 - embedded portable Agent Skill;
-- version-matched skill installation through the OMP marketplace or common user-level `.agents/skills` location.
+- version-matched skill installation through the OMP marketplace or common user-level `.agents/skills` location;
+- Windows-only live-process capture producing an importable, atomically published minidump.
 
 Current commands:
 
@@ -51,49 +52,10 @@ membridge inspect
 membridge scan
 membridge read
 membridge skill install
+membridge capture minidump
 ```
 
-## Active milestone: Windows capture
-
-The next product capability is an end-to-end Windows capture path.
-
-### Required behavior
-
-Add:
-
-```text
-membridge capture minidump --pid <pid> --output <path>
-```
-
-The implementation must:
-
-1. Open only the requested process using documented user-mode rights.
-2. Record PID, process creation time, image identity, capture start, and capture completion.
-3. Call `MiniDumpWriteDump` from outside the target process.
-4. Request full memory, memory information, thread information, process/thread data, and unloaded modules.
-5. Continue past inaccessible regions while reporting that omission.
-6. Write to a temporary path and atomically publish the completed dump.
-7. Refuse to overwrite an existing output unless explicitly requested.
-8. Import the result and return its BLAKE3 fingerprint and coverage summary.
-9. Remain unavailable on non-Windows hosts with a stable `UNSUPPORTED_HOST` error.
-10. Add Windows behavioral coverage and update the Agent Skill without inventing live-attach semantics.
-
-### Capture flags
-
-The initial capture profile should use:
-
-- `MiniDumpWithFullMemory`;
-- `MiniDumpWithFullMemoryInfo`;
-- `MiniDumpWithThreadInfo`;
-- `MiniDumpWithProcessThreadData`;
-- `MiniDumpWithUnloadedModules`;
-- `MiniDumpIgnoreInaccessibleMemory`.
-
-Any change to this profile must update tests, README, skill guidance, and the capture response schema.
-
-## Following milestones
-
-### Typed deterministic patterns
+## Active milestone: Typed deterministic patterns
 
 Extend scan specifications without introducing a general expression language:
 
@@ -107,6 +69,8 @@ Extend scan specifications without introducing a general expression language:
 
 No automatic secret classification or implicit transformations.
 Scopes compose by deterministic intersection. A scope that depends on unavailable metadata fails explicitly rather than guessing; no general filter expression language is introduced.
+
+## Following milestones
 
 ### Stateful daemon and result sets
 
@@ -184,6 +148,19 @@ Membridge does not unwind stacks, disassemble instructions, infer root causes, d
 ### Source boundary
 
 The internal source API stays narrow and read-only. Minidump, Windows, and VMM adapters normalize into the same process, region, module, coverage, scatter-read, and scan-span semantics.
+
+### Capture
+
+`membridge capture minidump --pid <pid> --output <path> [--force]` is Windows-only and returns `Error::UnsupportedHost` (`UNSUPPORTED_HOST`) everywhere else. It opens only the requested process with `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`, records PID, image path, process creation time, and the capture interval, then calls `MiniDumpWriteDump` out of process with:
+
+- `MiniDumpWithFullMemory`;
+- `MiniDumpWithFullMemoryInfo`;
+- `MiniDumpWithThreadInfo`;
+- `MiniDumpWithProcessThreadData`;
+- `MiniDumpWithUnloadedModules`;
+- `MiniDumpIgnoreInaccessibleMemory`.
+
+The dump is written to a same-directory staging path and published with `MoveFileExW`/`MOVEFILE_REPLACE_EXISTING`, so publication is atomic and an existing output is left untouched unless `--force` is passed. After publishing, capture immediately imports the result through the normal minidump source path and returns its `source` (including BLAKE3 fingerprint) and `coverage`, so a caller never has to trust the capture step's own claims about what was captured. Any change to the flag profile must update the behavioral tests, README, skill guidance, and this list together.
 
 ### Address representation
 
