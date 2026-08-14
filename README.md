@@ -68,26 +68,26 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 
 - An authorized Windows x64 user-mode minidump for real analysis.
 
-### Install `v0.1.0-alpha.1`
+### Install `v0.1.0-alpha.2`
 
 macOS and Linux:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.sh |
+  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-installer.sh |
   sh
 
-membridge skill install --target "$HOME/.agents/skills" --force
+membridge skill install --force
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.ps1 | iex
-membridge skill install --target "$HOME\.agents\skills" --force
+irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-installer.ps1 | iex
+membridge skill install --force
 ```
 
-The release installers place `membridge` under Cargo's binary directory. The published alpha requires the explicit `--target` shown above; current development builds use the same common location by default. Agent discovery support for that location varies. Alpha binaries are checksummed but unsigned and not notarized.
+The release installers place `membridge` under Cargo's binary directory. `membridge skill install` installs directly to the common `~/.agents/skills` location; agent discovery support for that location varies. Alpha binaries are checksummed but unsigned and not notarized.
 
 ### Install the latest development build
 
@@ -354,4 +354,4 @@ Repository expectations and invariants are defined in [AGENTS.md](AGENTS.md). Pl
 
 ## Status and licensing
 
-Membridge is licensed under either the [MIT License](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE), at your option. `v0.1.0-alpha.1` is an unsigned testing release. VMM/MemProcFS distribution remains gated on a separate licensing and packaging decision.
+Membridge is licensed under either the [MIT License](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE), at your option. Alpha releases are checksummed but unsigned and not notarized testing releases. VMM/MemProcFS distribution remains gated on a separate licensing and packaging decision.

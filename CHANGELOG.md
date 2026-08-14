@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-08-14
+
 ### Added
 
 - `membridge capture minidump --pid <pid> --output <path> [--force]`: a Windows-only, out-of-process `MiniDumpWriteDump` full-memory capture. It opens the target with read-only rights, publishes the dump atomically, refuses to overwrite an existing output without `--force`, and immediately imports the result to return process identity, capture interval, the exact capture flag profile, bounded capture-time warnings, source fingerprint, and coverage. Every other host returns the new `UNSUPPORTED_HOST` error.
@@ -19,6 +21,16 @@
 ### Security
 
 - Minidump parsing now caps captured memory-range, region, and module counts at 32,768 each and fails closed with a new `SOURCE_TOO_LARGE` error instead of driving unbounded region-attribution work on a crafted dump.
+
+### Alpha limitations
+
+- Binaries are unsigned and not notarized.
+- Live capture is Windows-only and requires same-user, unprotected-process access: no elevation, no `SeDebugPrivilege` use, and no cross-platform or protected-process capture.
+- No stack unwinding, exception/register crash seed, symbols, disassembly, structure inference, or crash-cause inference.
+- No typed, masked, pointer, or YARA scans.
+- Installed skills do not update automatically; rerun `membridge skill install --force` after updating the binary.
+
+Only inspect processes and dumps you are authorized to analyze. An incomplete capture cannot prove that a value was absent from process memory.
 
 ## [0.1.0-alpha.1] - 2026-08-14
 
@@ -46,3 +58,4 @@ First public testing release.
 Only inspect processes and dumps you are authorized to analyze. An incomplete capture cannot prove that a value was absent from process memory.
 
 [0.1.0-alpha.1]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.1
+[0.1.0-alpha.2]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.2
