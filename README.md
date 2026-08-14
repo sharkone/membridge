@@ -64,7 +64,7 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 
 ### Requirements
 
-- Stable Rust 1.85 or newer.
+- Stable Rust 1.87 or newer.
 - An authorized Windows x64 user-mode minidump for real analysis.
 
 ### Build

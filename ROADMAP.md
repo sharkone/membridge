@@ -6,19 +6,19 @@ This document describes milestone order. GitHub issues contain implementation ta
 
 ## Status
 
-| Milestone | State | Outcome |
-|---|---|---|
-| M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract |
-| M1: Project and Agent Skill | Active | Maintained repository, embedded portable skill, CI, examples, issue tracking |
-| M2: Windows minidump capture | Planned | Authorized PID to full process minidump to cross-platform analysis |
-| M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches |
-| M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra |
-| M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics |
-| M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing |
-| M7: Stable pointer chains | Planned | Bounded module-rooted paths validated across snapshots |
-| M8: VMM-backed acquisition | Research gate | System dumps, WinPMEM, VM, remote, and DMA sources |
-| M9: Optional analysis engines | Future | YARA, heap/runtime enrichment, snapshot modes |
-| M10: Explicit mutation mode | Separate security track | Target-scoped process writes outside the default daemon |
+| Milestone | State | Outcome | Tracking |
+|---|---|---|---|
+| M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
+| M1: Project and Agent Skill | Active | Maintained repository, embedded portable skill, CI, examples, issue tracking | — |
+| M2: Windows minidump capture | Planned | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
+| M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches | [#9](https://github.com/sharkone/membridge/issues/9) |
+| M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
+| M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
+| M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing | [#8](https://github.com/sharkone/membridge/issues/8) |
+| M7: Stable pointer chains | Planned | Bounded module-rooted paths validated across snapshots | [#6](https://github.com/sharkone/membridge/issues/6) |
+| M8: VMM-backed acquisition | Research gate | System dumps, WinPMEM, VM, remote, and DMA sources | [#3](https://github.com/sharkone/membridge/issues/3) |
+| M9: Optional analysis engines | Future | YARA, heap/runtime enrichment, snapshot modes | — |
+| M10: Explicit mutation mode | Separate security track | Target-scoped process writes outside the default daemon | — |
 
 ## M0: Offline vertical slice
 
