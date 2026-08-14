@@ -10,7 +10,7 @@ This document describes milestone order. GitHub issues contain implementation ta
 |---|---|---|---|
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
 | M1: Project and Agent Skill | Complete | Maintained public repository, embedded skill, CI, examples, explicit coverage limitations, and alpha release packaging | [#10](https://github.com/sharkone/membridge/issues/10), [#15](https://github.com/sharkone/membridge/issues/15), [#18](https://github.com/sharkone/membridge/issues/18), [#22](https://github.com/sharkone/membridge/issues/22) |
-| M2: Windows minidump capture | Active | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
+| M2: Windows minidump capture | Complete | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
 | M3: Typed deterministic patterns | Active | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
 | M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
@@ -73,18 +73,15 @@ Exit evidence:
 
 ## M2: Windows minidump capture
 
-Goal: make the dump-first workflow end to end without requiring an unrelated capture tool.
+Delivered:
 
-Deliverables:
-
-- Windows-only `capture minidump` command;
-- stable process identity and capture interval;
-- documented full-memory capture profile;
-- atomic output publication;
-- inaccessible-page reporting;
-- automatic import, fingerprint, and coverage response;
-- synthetic target executable for Windows CI;
-- cross-platform analysis of the resulting artifact.
+- Windows-only `membridge capture minidump --pid <pid> --output <path> [--force]`;
+- read-only process handle (`PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`) bound to PID, process creation time, and resolved image path;
+- `MiniDumpWriteDump` with `MiniDumpWithFullMemory`, `MiniDumpWithFullMemoryInfo`, `MiniDumpWithThreadInfo`, `MiniDumpWithProcessThreadData`, `MiniDumpWithUnloadedModules`, and `MiniDumpIgnoreInaccessibleMemory`;
+- same-directory staging plus `MoveFileExW`/`MOVEFILE_REPLACE_EXISTING` atomic publish, refusing an existing output unless `--force`;
+- automatic re-import through the normal minidump source path, returning fingerprint and coverage instead of trusting the capture step's own claims;
+- a synthetic Windows target executable with a readable canary page and a `PAGE_NOACCESS` page, exercised only on Windows CI;
+- a stable `UNSUPPORTED_HOST` error on every non-Windows host.
 
 Non-goals:
 
@@ -93,6 +90,12 @@ Non-goals:
 - kernel drivers;
 - privilege bypass;
 - memory writes.
+
+Exit evidence:
+
+- Windows CI spawns the synthetic target, captures it, verifies process identity/interval/flags/warnings/coverage in the response, rejects overwrite without `--force`, publishes with `--force`, then independently `inspect`s and `scan`s the resulting file and finds the readable canary at its reported address;
+- macOS and Linux CI confirm the command returns `UNSUPPORTED_HOST` without touching the filesystem;
+- formatting, Clippy, and the complete test suite pass on macOS, Linux, and Windows.
 
 ## M3: Typed deterministic patterns
 
