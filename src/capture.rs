@@ -2,8 +2,10 @@ use std::path::Path;
 
 use serde::Serialize;
 
+#[cfg(not(windows))]
+use crate::Error;
+use crate::Result;
 use crate::source::{Coverage, SourceInfo};
-use crate::{Error, Result};
 
 /// The `MiniDumpWriteDump` profile requested for every capture. Any change to this
 /// list must update the behavioral tests, README, skill guidance, and this constant
