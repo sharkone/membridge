@@ -1,6 +1,10 @@
 mod common;
 
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::path::Path;
 
 use assert_cmd::Command;
 use membridge::scan::{ExactPatternSpec, ScanSpec, scan};
@@ -242,6 +246,14 @@ fn cli_installs_the_version_matched_agent_skill() {
     let installed: Value = serde_json::from_slice(&installed).unwrap();
     assert_eq!(installed["command"], "skill.install");
     assert_eq!(installed["data"]["replaced"], false);
+    assert_eq!(
+        installed["data"]["binary_version"],
+        env!("CARGO_PKG_VERSION")
+    );
+    assert_eq!(
+        installed["data"]["skill_version"],
+        env!("CARGO_PKG_VERSION")
+    );
 
     let installed_skill =
         fs::read_to_string(skills_root.join("membridge").join("SKILL.md")).unwrap();
@@ -273,6 +285,163 @@ fn cli_installs_the_version_matched_agent_skill() {
         .clone();
     let replaced: Value = serde_json::from_slice(&replaced).unwrap();
     assert_eq!(replaced["data"]["replaced"], true);
+}
+
+#[test]
+fn cli_requires_exactly_one_skill_destination() {
+    let missing = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["skill", "install"])
+        .assert()
+        .failure()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let missing: Value = serde_json::from_slice(&missing).unwrap();
+    assert_eq!(missing["command"], "cli");
+    assert_eq!(missing["error"]["code"], "INVALID_ARGUMENT");
+
+    let temp = tempdir().unwrap();
+    let conflicting = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["skill", "install", "--target"])
+        .arg(temp.path())
+        .arg("--omp")
+        .assert()
+        .failure()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let conflicting: Value = serde_json::from_slice(&conflicting).unwrap();
+    assert_eq!(conflicting["command"], "cli");
+    assert_eq!(conflicting["error"]["code"], "INVALID_ARGUMENT");
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_installs_the_skill_into_the_active_omp_profile() {
+    let temp = tempdir().unwrap();
+    let bin_dir = temp.path().join("bin");
+    let agent_root = temp.path().join("active-omp-agent");
+    write_fake_omp(&bin_dir);
+
+    let installed = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["skill", "install", "--omp"])
+        .env("PATH", &bin_dir)
+        .env(
+            "MEMBRIDGE_TEST_OMP_OUTPUT",
+            format!("{}\n", agent_root.display()),
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let installed: Value = serde_json::from_slice(&installed).unwrap();
+    let destination = agent_root.join("skills").join("membridge");
+
+    assert_eq!(
+        installed["data"]["destination"],
+        destination.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        fs::read_to_string(destination.join("SKILL.md")).unwrap(),
+        include_str!("../.agents/skills/membridge/SKILL.md")
+    );
+    assert_eq!(
+        fs::read_to_string(destination.join("examples").join("canary-batch.json")).unwrap(),
+        include_str!("../.agents/skills/membridge/examples/canary-batch.json")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_rejects_unavailable_or_invalid_omp_discovery() {
+    let temp = tempdir().unwrap();
+    let empty_path = temp.path().join("empty-path");
+    fs::create_dir(&empty_path).unwrap();
+
+    let missing = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["skill", "install", "--omp"])
+        .env("PATH", &empty_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let missing: Value = serde_json::from_slice(&missing).unwrap();
+    assert_eq!(missing["command"], "skill.install");
+    assert_eq!(missing["error"]["code"], "OMP_NOT_FOUND");
+
+    let bin_dir = temp.path().join("bin");
+    write_fake_omp(&bin_dir);
+    let invalid_outputs = [
+        ("", "empty path"),
+        ("first\nsecond\n", "multiple lines"),
+        ("relative/path\n", "non-absolute path"),
+        (&"x".repeat(4097), "exceeds 4096 bytes"),
+    ];
+    for (output, expected_message) in invalid_outputs {
+        let failure = Command::cargo_bin("membridge")
+            .unwrap()
+            .args(["skill", "install", "--omp"])
+            .env("PATH", &bin_dir)
+            .env("MEMBRIDGE_TEST_OMP_OUTPUT", output)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+        let failure: Value = serde_json::from_slice(&failure).unwrap();
+        assert_eq!(failure["error"]["code"], "OMP_DISCOVERY_FAILED");
+        assert!(
+            failure["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(expected_message)
+        );
+    }
+
+    let failed = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["skill", "install", "--omp"])
+        .env("PATH", &bin_dir)
+        .env("MEMBRIDGE_TEST_OMP_OUTPUT", "/ignored\n")
+        .env("MEMBRIDGE_TEST_OMP_STATUS", "9")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let failed: Value = serde_json::from_slice(&failed).unwrap();
+    assert_eq!(failed["error"]["code"], "OMP_DISCOVERY_FAILED");
+    assert!(
+        failed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("exited with")
+    );
+}
+
+#[cfg(unix)]
+fn write_fake_omp(bin_dir: &Path) {
+    fs::create_dir_all(bin_dir).unwrap();
+    let executable = bin_dir.join("omp");
+    fs::write(
+        &executable,
+        "#!/bin/sh\n\
+         if [ \"$1\" != config ] || [ \"$2\" != path ]; then exit 64; fi\n\
+         printf '%s' \"$MEMBRIDGE_TEST_OMP_OUTPUT\"\n\
+         exit \"${MEMBRIDGE_TEST_OMP_STATUS:-0}\"\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&executable).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(executable, permissions).unwrap();
 }
 
 fn spec(max_matches: usize, patterns: Vec<ExactPatternSpec>) -> ScanSpec {

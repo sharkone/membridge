@@ -41,7 +41,8 @@ The first vertical slice is complete:
 - compact schema-v1 JSON;
 - synthetic behavioral fixture;
 - stable source-derived coverage limitation codes;
-- embedded portable Agent Skill.
+- embedded portable Agent Skill;
+- OMP-native and portable version-matched skill installation.
 
 Current commands:
 
@@ -210,6 +211,10 @@ Literal search patterns, byte previews, and live comparison baselines are not pe
 ### AI integration
 
 The canonical Agent Skill is stored in `.agents/skills/membridge` and embedded into the binary. Skill text must describe only shipped commands and exact output semantics.
+
+`membridge skill install --omp` delegates active user-profile discovery to `omp config path` and installs under its `skills` directory. This preserves OMP profile and agent-directory semantics without duplicating them. `--target` remains the explicit portable-client path. Exactly one destination mode is required.
+
+Installation output reports matching binary and embedded-skill versions. Updates remain explicit: Membridge performs no background checks and replaces an installed skill only when the caller passes `--force`.
 
 ### Network behavior
 

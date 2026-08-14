@@ -22,6 +22,24 @@ It does not currently capture processes, attach to live processes, decode typed 
 
 Only inspect processes and dumps the user is authorized to analyze.
 
+## Installation
+
+The skill embedded in a Membridge binary is version-matched to that binary. Install it into the active OMP-native user profile with:
+
+```sh
+membridge skill install --omp
+```
+
+Membridge runs `omp config path` and installs under the reported agent directory's `skills` root. OMP must be on `PATH`. Use `--force` after updating the binary; installed copies do not update automatically. Start a new OMP session after installation.
+
+For another Agent Skills-compatible client, pass its skills root explicitly:
+
+```sh
+membridge skill install --target <skills-root>
+```
+
+Exactly one of `--omp` or `--target` is required. Successful output reports matching `binary_version` and `skill_version` fields. `OMP_NOT_FOUND` means the OMP executable is unavailable; `OMP_DISCOVERY_FAILED` means its active agent directory could not be safely resolved.
+
 ## Required workflow
 
 ### 1. Inspect before searching
