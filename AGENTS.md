@@ -79,6 +79,7 @@ src/main.rs              public CLI
 .claude-plugin/          Claude Code-compatible marketplace catalog loaded by OMP
 examples/                deterministic fixture and runnable workflows
 tests/                   behavioral contracts
+test-support/            Cargo workspace members excluded from dist (test-only helper processes)
 ```
 
 Source adapters normalize into the existing `MemorySource` and `ProcessMemory` contracts. Do not create a second scanner for a new source.
@@ -143,6 +144,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ./examples/demo.sh
 ```
+
+`test-support/synthetic-capture-target` is a separate workspace package holding the Windows-only synthetic capture-test helper process; it opts itself out of `dist` via `[package.metadata.dist] dist = false` so release archives never contain it. The Windows capture behavioral test builds it on demand and locates it next to `membridge`'s own build artifacts; it is never a public command.
 
 Release changes additionally require:
 

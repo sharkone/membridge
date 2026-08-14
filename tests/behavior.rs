@@ -630,10 +630,32 @@ fn capture_minidump_reports_unsupported_host_off_windows() {
 fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
     use std::io::{BufRead, BufReader};
 
+    // `synthetic-capture-target` lives in a separate workspace package
+    // (test-support/synthetic-capture-target) so `dist` never ships it as a
+    // release artifact; a plain `[[bin]]` in this package would still be
+    // enumerated and required by dist's build step. Build it explicitly so
+    // this test is self-sufficient regardless of how `cargo test` was
+    // invoked, then locate it next to this test binary's own sibling
+    // artifacts in the shared workspace target dir.
+    let manifest_path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let build = std::process::Command::new(env!("CARGO"))
+        .args(["build", "--quiet", "--manifest-path", manifest_path])
+        .args(["--package", "synthetic-capture-target"])
+        .status()
+        .unwrap();
+    assert!(build.success(), "failed to build synthetic-capture-target");
+    let target_exe = std::path::Path::new(env!("CARGO_BIN_EXE_membridge"))
+        .parent()
+        .unwrap()
+        .join(format!(
+            "synthetic-capture-target{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+
     let temp = tempdir().unwrap();
     let output_path = temp.path().join("capture.dmp");
 
-    let mut target = std::process::Command::new(env!("CARGO_BIN_EXE_synthetic-capture-target"))
+    let mut target = std::process::Command::new(&target_exe)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()

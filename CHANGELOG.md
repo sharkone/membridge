@@ -14,6 +14,7 @@
 - The canonical skill now packages opt-in, checksum-pinned shell and PowerShell binary bootstrap scripts. Marketplace installation never executes them; agents must obtain explicit approval before a bootstrap downloads executable code.
 - Published the current skill-only marketplace revision as `0.1.0-alpha.1.skill.2`, explicitly compatible with the previously published `0.1.0-alpha.1` binary.
 - `scan` region `offset` and module `rva` fields are now fixed-width hexadecimal `Address` strings instead of JSON numbers, matching every other address field. This is an incompatible response change: `protocol.SCHEMA_VERSION` is now `2`.
+- The Windows-only synthetic capture-test helper process now lives in a separate, `dist`-excluded workspace package (`test-support/synthetic-capture-target`); release archives contain only the `membridge` binary.
 
 ### Security
 
