@@ -19,7 +19,8 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 }
 
 if (-not $Force) {
-    $Command = Get-Command membridge -CommandType Application -ErrorAction SilentlyContinue
+    $Command = Get-Command membridge -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if ($Command) {
         $InstalledVersion = & $Command.Path --version 2>$null
         if ($LASTEXITCODE -eq 0 -and $InstalledVersion -eq "membridge $Version") {

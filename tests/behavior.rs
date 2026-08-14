@@ -529,7 +529,7 @@ fn portable_marketplace_exposes_the_canonical_versioned_skill() {
     let catalog: Value =
         serde_json::from_str(include_str!("../.claude-plugin/marketplace.json")).unwrap();
     assert_eq!(catalog["name"], "membridge");
-    let plugin_version = format!("{}.skill.1", env!("CARGO_PKG_VERSION"));
+    let plugin_version = format!("{}.skill.2", env!("CARGO_PKG_VERSION"));
     assert_eq!(catalog["metadata"]["version"], plugin_version);
 
     let plugin = &catalog["plugins"][0];
