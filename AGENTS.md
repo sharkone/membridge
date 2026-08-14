@@ -75,6 +75,7 @@ src/scan.rs              deterministic exact-byte scanner
 src/skill.rs             embedded version-matched skill installer
 src/main.rs              public CLI
 .agents/skills/          canonical portable Agent Skill
+.claude-plugin/          Claude Code-compatible marketplace catalog loaded by OMP
 examples/                deterministic fixture and runnable workflows
 tests/                   behavioral contracts
 ```
@@ -121,7 +122,13 @@ Requirements:
 - guidance reflects only shipped behavior;
 - examples contain no real secrets;
 - installation tests must prove embedded files equal repository files;
-- OMP discovery must be verified when skill layout changes.
+- every binary version or observable CLI change must update the canonical skill in the same change;
+- bootstrap scripts must pin the matching binary version and authenticate executable downloads before execution; do not introduce a self-referential checksum cycle when the binary embeds its own bootstrap;
+- OMP discovery must be verified when skill layout changes;
+- the marketplace plugin source remains `./.agents`, never a copied skill tree;
+- catalog and plugin versions must match each other and use `<binary-version>.skill.<revision>`;
+- increment the skill revision for marketplace-visible skill changes without a binary version bump;
+- local OMP marketplace install, discovery, and upgrade must be exercised when marketplace metadata changes.
 
 Never maintain a second hand-copied skill tree.
 

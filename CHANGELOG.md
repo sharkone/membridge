@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- `membridge skill install` now installs directly to the common cross-client `~/.agents/skills` location; the `--omp` and `--target` destination modes were removed.
+- The embedded Agent Skill now emphasizes shipped capabilities, possible analyses, limits, and result semantics instead of prescribing a mandatory workflow or repeating release installation instructions.
+- Added an optional Claude Code-compatible marketplace adapter that OMP also loads; it exposes the canonical skill without making the tool or skill client-specific.
+- The canonical skill now packages opt-in, checksum-pinned shell and PowerShell binary bootstrap scripts. Marketplace installation never executes them; agents must obtain explicit approval before a bootstrap downloads executable code.
+- Published the first skill-only marketplace revision as `0.1.0-alpha.1.skill.1`, explicitly compatible with the previously published `0.1.0-alpha.1` binary.
+
 ## [0.1.0-alpha.1] - 2026-08-14
 
 First public testing release.

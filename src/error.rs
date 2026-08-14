@@ -18,10 +18,8 @@ pub enum Error {
     InvalidSpec(String),
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
-    #[error("OMP executable was not found on PATH")]
-    OmpNotFound,
-    #[error("failed to discover the OMP agent directory: {0}")]
-    OmpDiscovery(String),
+    #[error("could not determine the user home directory: {0}")]
+    HomeDirectoryUnavailable(String),
     #[error("memory source invariant failed: {0}")]
     SourceInvariant(String),
     #[error("JSON error: {0}")]
@@ -37,8 +35,7 @@ impl Error {
             Self::MissingMemory => "MISSING_MEMORY",
             Self::InvalidSpec(_) => "INVALID_SCAN_SPEC",
             Self::InvalidArgument(_) => "INVALID_ARGUMENT",
-            Self::OmpNotFound => "OMP_NOT_FOUND",
-            Self::OmpDiscovery(_) => "OMP_DISCOVERY_FAILED",
+            Self::HomeDirectoryUnavailable(_) => "HOME_DIRECTORY_UNAVAILABLE",
             Self::SourceInvariant(_) => "SOURCE_INVARIANT",
             Self::Json(_) => "INVALID_JSON",
         }

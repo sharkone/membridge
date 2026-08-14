@@ -1,144 +1,63 @@
 ---
 name: membridge
-description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding known byte representations, checking memory coverage, or reading small windows around matches.
+description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding known byte representations, checking memory coverage, attributing addresses, or reading small windows around matches.
+compatibility: Requires the version-matched membridge executable on PATH.
 ---
 
 # Membridge
 
-Use Membridge as a bounded interface to authorized process-memory captures. The CLI performs deterministic mechanics; you decide what representations matter and how findings relate to source code.
+Membridge exposes deterministic mechanics for authorized process-memory captures. It returns compact JSON evidence; callers decide what the bytes mean.
 
-## Current boundary
+## Binary availability
 
-Membridge currently supports:
+This skill requires the version-matched `membridge 0.1.0-alpha.1` executable on `PATH`. Check `membridge --version` before using it.
 
-- Windows x64 user-mode minidumps containing `Memory64ListStream` or `MemoryListStream`;
-- region, module, and capture-coverage inspection;
-- tagged batches of exact byte patterns;
-- alignment constraints;
-- bounded reads of captured virtual memory;
-- compact schema-v1 JSON output.
-
-It does not currently capture processes, attach to live processes, decode typed values, resolve symbols, scan pointers, run YARA, or write memory. Do not invent commands for roadmap capabilities.
-
-Only inspect processes and dumps the user is authorized to analyze.
-
-## Installation
-
-Install the `v0.1.0-alpha.1` binary on macOS or Linux:
+If the executable is missing or has another version, offer to run the bootstrap script for the host platform. Resolve `scripts/` relative to this `SKILL.md`, not the caller's project directory. Explain that it downloads and installs executable code, and run it only after explicit user approval:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.sh |
-  sh
+sh scripts/install.sh
 ```
-
-On Windows PowerShell:
 
 ```powershell
-irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.ps1 | iex
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
 
-Alpha binaries are checksummed but unsigned and not notarized.
+The scripts pin the release and its SHA-256 digest, enforce download size limits, verify the installed version, and perform no background update checks. Do not replace them with an unverified download pipe. Skill activation itself must remain offline and side-effect free.
 
-The skill embedded in a Membridge binary is version-matched to that binary. Install it into the active OMP-native user profile with:
+## Available operations
 
-```sh
-membridge skill install --omp
-```
-
-Membridge runs `omp config path` and installs under the reported agent directory's `skills` root. OMP must be on `PATH`. Use `--force` after updating the binary; installed copies do not update automatically. Start a new OMP session after installation.
-
-For another Agent Skills-compatible client, pass its skills root explicitly:
-
-```sh
-membridge skill install --target <skills-root>
-```
-
-Exactly one of `--omp` or `--target` is required. Successful output reports matching `binary_version` and `skill_version` fields. `OMP_NOT_FOUND` means the OMP executable is unavailable; `OMP_DISCOVERY_FAILED` means its active agent directory could not be safely resolved.
-
-## Required workflow
-
-### 1. Inspect before searching
+### Inspect a dump
 
 ```sh
 membridge inspect <capture.dmp>
 ```
 
-Read these fields before making claims:
+`inspect` reports:
 
-- `data.source.fingerprint`
-- `data.coverage.metadata_complete`
-- `data.coverage.coverage_complete`
-- `data.coverage.unavailable_readable_bytes`
-- `data.coverage.limitations`
-- `data.regions`
-- `data.modules`
+- a BLAKE3 source fingerprint;
+- target platform and architecture;
+- captured processes;
+- memory regions, state, protection, type, and capture status;
+- modules with image base, size, timestamp, and path;
+- expected, captured, and unavailable readable bytes;
+- explicit coverage limitations.
 
-A successful command does not imply complete capture coverage.
-
-### 2. Generate deterministic representations
-
-Convert each logical value into explicit bytes. Give every representation a stable descriptive tag. Batch related representations into one scan specification rather than rereading the dump once per pattern.
-
-Use `skill://membridge/examples/canary-batch.json` as a starting point in OMP. In other Agent Skills clients, read `examples/canary-batch.json` relative to this skill.
-
-Never pass a real secret as a command-line argument. Put the scan specification in a protected file or send it through stdin:
+### Scan exact byte representations
 
 ```sh
-membridge scan <capture.dmp> --spec - < scan.json
+membridge scan <capture.dmp> --spec <scan.json|->
 ```
 
-### 3. Evaluate scan completeness
+`scan` accepts a tagged batch of exact byte patterns and reports:
 
-Inspect:
+- deterministically ordered, overlapping matches;
+- per-pattern alignment constraints;
+- module and RVA attribution when a match falls inside a module;
+- region attribution when metadata is available;
+- a hard match quota and deterministic continuation address;
+- scan completion and capture coverage as separate states.
 
-- `data.report.terminal_reason`
-- `data.report.scan_complete`
-- `data.report.next_address`
-- `data.report.coverage`
-
-`terminal_reason: "match_limit"` means the returned matches are a deterministic prefix, not the complete result. Narrow the pattern or scan scope when scope filters become available; do not report an exhaustive count.
-
-`coverage_complete: false` means absence is unproven even when `scan_complete` is true.
-
-`coverage.limitations` is a deterministically ordered list with at most four stable codes:
-
-- `MEMORY_METADATA_MISSING`: no memory-information stream was captured;
-- `MEMORY_METADATA_UNUSABLE`: the stream exists but cannot be parsed;
-- `EXPECTED_READABLE_SCOPE_UNPROVEN`: the source cannot establish every expected readable byte;
-- `KNOWN_READABLE_BYTES_MISSING`: known readable bytes are absent; use `unavailable_readable_bytes` for the exact known count.
-
-Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. Zero unavailable bytes does not prove complete coverage in that state.
-
-### 4. Inspect only promising matches
-
-```sh
-membridge read <capture.dmp> --address <virtual-address> --length <bytes>
-```
-
-Start with the smallest useful window. The default is 256 bytes and the hard limit is 65,536 bytes. Treat `complete: false` and multiple returned segments as evidence of missing ranges. Never concatenate across a gap as though the bytes were contiguous.
-
-### 5. Report evidence, not intuition
-
-Include:
-
-- source fingerprint;
-- exact tagged pattern;
-- virtual address;
-- module and RVA when present;
-- region kind and protection;
-- scan terminal reason;
-- coverage limitations;
-- the smallest bounded byte window needed to support the conclusion.
-
-Distinguish these conclusions:
-
-- **observed:** a pattern matched captured readable memory;
-- **not observed in captured scope:** scan exhausted available scope, but capture coverage is incomplete;
-- **not observed in complete scope:** scan and coverage are both complete;
-- **unknown:** the scan stopped, failed, or omitted relevant memory.
-
-## Scan specification
+Example specification:
 
 ```json
 {
@@ -154,7 +73,7 @@ Distinguish these conclusions:
 }
 ```
 
-Constraints:
+Limits:
 
 - 1 to 64 patterns;
 - unique, non-empty tags;
@@ -163,23 +82,74 @@ Constraints:
 - positive alignment;
 - 1 to 1,000,000 retained matches.
 
-Addresses are JSON strings such as `"0x0000000140000100"`; never coerce them through a lossy floating-point JSON number.
+Use `examples/canary-batch.json` as a reusable starting point. For sensitive values, prefer a protected specification file or stdin rather than a command-line argument:
 
-## Failure handling
-
-Every command emits one JSON object. On failure:
-
-```json
-{
-  "schema": 1,
-  "ok": false,
-  "command": "scan",
-  "error": {
-    "code": "INVALID_SCAN_SPEC",
-    "message": "...",
-    "retryable": false
-  }
-}
+```sh
+membridge scan <capture.dmp> --spec - < scan.json
 ```
 
-Fix the named input or source error. Do not suppress errors, substitute another dump, silently reduce scope, or treat partial output as complete.
+### Read bounded memory
+
+```sh
+membridge read <capture.dmp> --address <virtual-address> --length <bytes>
+```
+
+`read` returns captured segments beginning at the requested address. The default length is 256 bytes and the hard limit is 65,536 bytes. Separate segments identify gaps; `complete: false` means the requested range was not fully captured.
+
+## Analyses enabled by the current tool
+
+Callers can form explicit bytes and use Membridge to locate:
+
+- UTF-8, UTF-16LE, or other known string encodings;
+- integer and floating-point bit representations with chosen width and endianness;
+- canaries, sentinels, magic values, identifiers, and serialized headers;
+- multiple alternative representations in one tagged scan;
+- module-relative locations through returned RVAs;
+- small byte windows around promising matches.
+
+These transformations are caller-controlled. Membridge currently scans exact bytes; it does not implicitly encode values or infer types.
+
+## Result semantics
+
+`scan_complete` and `coverage_complete` answer different questions:
+
+- `scan_complete`: the scanner exhausted the selected captured scope;
+- `coverage_complete`: the dump contained every expected readable byte.
+
+`terminal_reason: "match_limit"` means matches are a deterministic prefix and `next_address` identifies where omitted results begin.
+
+Coverage limitations are:
+
+- `MEMORY_METADATA_MISSING`;
+- `MEMORY_METADATA_UNUSABLE`;
+- `EXPECTED_READABLE_SCOPE_UNPROVEN`;
+- `KNOWN_READABLE_BYTES_MISSING`.
+
+Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. Zero unavailable bytes does not prove complete coverage when expected readable scope is unproven.
+
+Useful evidence language:
+
+- **observed:** matched captured readable memory;
+- **not observed in captured scope:** scanning finished, but coverage was incomplete;
+- **not observed in complete scope:** scanning and coverage were both complete;
+- **unknown:** scanning stopped, failed, or omitted relevant memory.
+
+Addresses are fixed-width hexadecimal strings such as `"0x0000000140000100"`. Do not coerce them through lossy floating-point JSON numbers. Do not concatenate read segments across a gap.
+
+## Current boundary
+
+Membridge currently supports Windows x64 user-mode minidumps containing `Memory64ListStream` or `MemoryListStream`.
+
+It does not currently:
+
+- capture or attach to processes;
+- write, allocate, protect, suspend, or execute memory;
+- decode typed values;
+- resolve symbols or disassemble instructions;
+- scan pointers, masked patterns, or YARA rules;
+- infer structures or crash causes;
+- contact network services.
+
+Every command emits one compact schema-v1 JSON object. Failures contain a stable error code, message, and retryability flag. Do not suppress failures or treat partial output as complete.
+
+Only inspect processes and dumps the user is authorized to analyze.

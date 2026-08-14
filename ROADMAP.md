@@ -46,9 +46,11 @@ Delivered:
 
 - public GitHub repository;
 - maintained README, plan, roadmap, and AGENTS guidance;
-- Agent Skills-compatible workflow stored in the repository;
+- Agent Skills-compatible capability reference stored in the repository;
 - version-matched `membridge skill install` command;
-- OMP-native installation using the active agent directory reported by `omp config path`;
+- optional OMP and Claude Code marketplace installation and upgrades sourced directly from the canonical skill tree;
+- user-level portable installation through the common cross-client `~/.agents/skills` convention;
+- explicit checksum-pinned binary bootstrap resources inside the canonical skill, never run during discovery or activation;
 - runnable fixture demo and reusable specifications;
 - macOS, Linux, and Windows CI;
 - issue and pull-request templates;
@@ -59,9 +61,11 @@ Delivered:
 Exit evidence:
 
 - a fresh checkout can build, test, run the demo, and install the skill;
-- OMP discovers the repository skill;
-- the installed skill matches the version embedded in the binary;
-- OMP-native installation follows the active profile and preserves the embedded binary/skill version match;
+- Agent Skills clients discover the repository skill;
+- the optional OMP/Claude Code marketplace installs and exposes the canonical skill without a second copy;
+- marketplace upgrades preserve the declared plugin version and canonical source;
+- portable user-level installation uses the common cross-client location and remains the primary contract;
+- an approved host bootstrap installs the pinned release, rejects checksum mismatches, and verifies the resulting binary version;
 - repository visibility is public;
 - branch CI is running;
 - incomplete coverage reports a deterministic reason rather than relying on booleans alone;

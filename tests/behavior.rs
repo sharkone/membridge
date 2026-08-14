@@ -1,10 +1,6 @@
 mod common;
 
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
-use std::path::Path;
 
 use assert_cmd::Command;
 use membridge::scan::{ExactPatternSpec, ScanSpec, scan};
@@ -13,6 +9,10 @@ use membridge::source::{
 };
 use serde_json::Value;
 use tempfile::tempdir;
+#[cfg(windows)]
+const USER_HOME_ENV: &str = "USERPROFILE";
+#[cfg(not(windows))]
+const USER_HOME_ENV: &str = "HOME";
 
 use common::{
     BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, MemoryMetadataFixture, NOACCESS_DECOY,
@@ -232,12 +232,13 @@ fn cli_emits_one_compact_json_object_per_command() {
 #[test]
 fn cli_installs_the_version_matched_agent_skill() {
     let temp = tempdir().unwrap();
-    let skills_root = temp.path().join("skills");
+    let home = temp.path().join("home");
+    let destination = home.join(".agents").join("skills").join("membridge");
 
     let installed = Command::cargo_bin("membridge")
         .unwrap()
-        .args(["skill", "install", "--target"])
-        .arg(&skills_root)
+        .args(["skill", "install"])
+        .env(USER_HOME_ENV, &home)
         .assert()
         .success()
         .get_output()
@@ -245,6 +246,10 @@ fn cli_installs_the_version_matched_agent_skill() {
         .clone();
     let installed: Value = serde_json::from_slice(&installed).unwrap();
     assert_eq!(installed["command"], "skill.install");
+    assert_eq!(
+        installed["data"]["destination"],
+        destination.to_string_lossy().as_ref()
+    );
     assert_eq!(installed["data"]["replaced"], false);
     assert_eq!(
         installed["data"]["binary_version"],
@@ -254,30 +259,60 @@ fn cli_installs_the_version_matched_agent_skill() {
         installed["data"]["skill_version"],
         env!("CARGO_PKG_VERSION")
     );
+    assert_eq!(
+        installed["data"]["files"],
+        serde_json::json!([
+            "SKILL.md",
+            "examples/canary-batch.json",
+            "scripts/install.sh",
+            "scripts/install.ps1"
+        ])
+    );
 
-    let installed_skill =
-        fs::read_to_string(skills_root.join("membridge").join("SKILL.md")).unwrap();
+    let installed_skill = fs::read_to_string(destination.join("SKILL.md")).unwrap();
     assert_eq!(
         installed_skill,
         include_str!("../.agents/skills/membridge/SKILL.md")
     );
-    let installed_example = fs::read_to_string(
-        skills_root
-            .join("membridge")
-            .join("examples")
-            .join("canary-batch.json"),
-    )
-    .unwrap();
+    let installed_example =
+        fs::read_to_string(destination.join("examples").join("canary-batch.json")).unwrap();
     assert_eq!(
         installed_example,
         include_str!("../.agents/skills/membridge/examples/canary-batch.json")
     );
+    let installed_shell =
+        fs::read_to_string(destination.join("scripts").join("install.sh")).unwrap();
+    assert_eq!(
+        installed_shell,
+        include_str!("../.agents/skills/membridge/scripts/install.sh")
+    );
+    let installed_powershell =
+        fs::read_to_string(destination.join("scripts").join("install.ps1")).unwrap();
+    assert_eq!(
+        installed_powershell,
+        include_str!("../.agents/skills/membridge/scripts/install.ps1")
+    );
+    let version = env!("CARGO_PKG_VERSION");
+    assert!(installed_skill.contains(&format!("`membridge {version}`")));
+    assert!(installed_shell.contains(&format!("VERSION=\"{version}\"")));
+    assert!(installed_shell.contains(&format!("releases/download/v{version}/")));
+    assert!(installed_powershell.contains(&format!("$Version = '{version}'")));
+    assert!(installed_powershell.contains(&format!("releases/download/v{version}/")));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = fs::metadata(destination.join("scripts").join("install.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0);
+    }
 
     let replaced = Command::cargo_bin("membridge")
         .unwrap()
-        .args(["skill", "install", "--target"])
-        .arg(&skills_root)
-        .arg("--force")
+        .args(["skill", "install", "--force"])
+        .env(USER_HOME_ENV, &home)
         .assert()
         .success()
         .get_output()
@@ -285,6 +320,79 @@ fn cli_installs_the_version_matched_agent_skill() {
         .clone();
     let replaced: Value = serde_json::from_slice(&replaced).unwrap();
     assert_eq!(replaced["data"]["replaced"], true);
+    let skills_root = destination.parent().unwrap();
+    let entries: Vec<_> = fs::read_dir(skills_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("membridge")]);
+}
+
+#[cfg(unix)]
+#[test]
+fn shell_bootstrap_skips_a_match_and_rejects_a_tampered_installer() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempdir().unwrap();
+    let fake_bin = temp.path().join("bin");
+    fs::create_dir(&fake_bin).unwrap();
+    let fake_curl = fake_bin.join("curl");
+    fs::write(
+        &fake_curl,
+        r#"#!/bin/sh
+output=
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--output" ]; then
+        output=$2
+        shift 2
+    else
+        shift
+    fi
+done
+printf tampered > "$output"
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_curl).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_curl, permissions).unwrap();
+    let fake_membridge = fake_bin.join("membridge");
+    fs::write(
+        &fake_membridge,
+        format!(
+            "#!/bin/sh\nprintf 'membridge {}\\n'\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_membridge).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_membridge, permissions).unwrap();
+
+    let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".agents/skills/membridge/scripts/install.sh");
+    let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", fake_bin.display());
+    let skipped = std::process::Command::new("sh")
+        .arg(&bootstrap)
+        .env("PATH", &path)
+        .env("CARGO_HOME", temp.path().join("cargo"))
+        .output()
+        .unwrap();
+    assert!(skipped.status.success());
+    assert!(String::from_utf8_lossy(&skipped.stdout).contains("is already installed"));
+
+    let output = std::process::Command::new("sh")
+        .arg(bootstrap)
+        .env("PATH", &path)
+        .env("CARGO_HOME", temp.path().join("cargo"))
+        .env("MEMBRIDGE_BOOTSTRAP_FORCE", "1")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("release installer checksum mismatch")
+    );
 }
 
 #[test]
@@ -317,86 +425,34 @@ fn cli_help_and_version_flags_exit_successfully() {
 }
 
 #[test]
-fn cli_requires_exactly_one_skill_destination() {
-    let missing = Command::cargo_bin("membridge")
-        .unwrap()
+fn cli_rejects_obsolete_skill_destination_flags() {
+    for arguments in [
+        vec!["skill", "install", "--omp"],
+        vec!["skill", "install", "--target", "skills"],
+    ] {
+        let failure = Command::cargo_bin("membridge")
+            .unwrap()
+            .args(arguments)
+            .assert()
+            .failure()
+            .code(2)
+            .get_output()
+            .stdout
+            .clone();
+        let failure: Value = serde_json::from_slice(&failure).unwrap();
+        assert_eq!(failure["command"], "cli");
+        assert_eq!(failure["error"]["code"], "INVALID_ARGUMENT");
+    }
+}
+
+#[test]
+fn cli_rejects_unavailable_or_relative_user_home() {
+    let mut missing = Command::cargo_bin("membridge").unwrap();
+    missing.env_remove("HOME");
+    #[cfg(windows)]
+    missing.env_remove("USERPROFILE");
+    let missing = missing
         .args(["skill", "install"])
-        .assert()
-        .failure()
-        .code(2)
-        .get_output()
-        .stdout
-        .clone();
-    let missing: Value = serde_json::from_slice(&missing).unwrap();
-    assert_eq!(missing["command"], "cli");
-    assert_eq!(missing["error"]["code"], "INVALID_ARGUMENT");
-
-    let temp = tempdir().unwrap();
-    let conflicting = Command::cargo_bin("membridge")
-        .unwrap()
-        .args(["skill", "install", "--target"])
-        .arg(temp.path())
-        .arg("--omp")
-        .assert()
-        .failure()
-        .code(2)
-        .get_output()
-        .stdout
-        .clone();
-    let conflicting: Value = serde_json::from_slice(&conflicting).unwrap();
-    assert_eq!(conflicting["command"], "cli");
-    assert_eq!(conflicting["error"]["code"], "INVALID_ARGUMENT");
-}
-
-#[cfg(unix)]
-#[test]
-fn cli_installs_the_skill_into_the_active_omp_profile() {
-    let temp = tempdir().unwrap();
-    let bin_dir = temp.path().join("bin");
-    let agent_root = temp.path().join("active-omp-agent");
-    write_fake_omp(&bin_dir);
-
-    let installed = Command::cargo_bin("membridge")
-        .unwrap()
-        .args(["skill", "install", "--omp"])
-        .env("PATH", &bin_dir)
-        .env(
-            "MEMBRIDGE_TEST_OMP_OUTPUT",
-            format!("{}\n", agent_root.display()),
-        )
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let installed: Value = serde_json::from_slice(&installed).unwrap();
-    let destination = agent_root.join("skills").join("membridge");
-
-    assert_eq!(
-        installed["data"]["destination"],
-        destination.to_string_lossy().as_ref()
-    );
-    assert_eq!(
-        fs::read_to_string(destination.join("SKILL.md")).unwrap(),
-        include_str!("../.agents/skills/membridge/SKILL.md")
-    );
-    assert_eq!(
-        fs::read_to_string(destination.join("examples").join("canary-batch.json")).unwrap(),
-        include_str!("../.agents/skills/membridge/examples/canary-batch.json")
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn cli_rejects_unavailable_or_invalid_omp_discovery() {
-    let temp = tempdir().unwrap();
-    let empty_path = temp.path().join("empty-path");
-    fs::create_dir(&empty_path).unwrap();
-
-    let missing = Command::cargo_bin("membridge")
-        .unwrap()
-        .args(["skill", "install", "--omp"])
-        .env("PATH", &empty_path)
         .assert()
         .failure()
         .get_output()
@@ -404,73 +460,50 @@ fn cli_rejects_unavailable_or_invalid_omp_discovery() {
         .clone();
     let missing: Value = serde_json::from_slice(&missing).unwrap();
     assert_eq!(missing["command"], "skill.install");
-    assert_eq!(missing["error"]["code"], "OMP_NOT_FOUND");
+    assert_eq!(missing["error"]["code"], "HOME_DIRECTORY_UNAVAILABLE");
 
-    let bin_dir = temp.path().join("bin");
-    write_fake_omp(&bin_dir);
-    let invalid_outputs = [
-        ("", "empty path"),
-        ("first\nsecond\n", "multiple lines"),
-        ("relative/path\n", "non-absolute path"),
-        (&"x".repeat(4097), "exceeds 4096 bytes"),
-    ];
-    for (output, expected_message) in invalid_outputs {
-        let failure = Command::cargo_bin("membridge")
-            .unwrap()
-            .args(["skill", "install", "--omp"])
-            .env("PATH", &bin_dir)
-            .env("MEMBRIDGE_TEST_OMP_OUTPUT", output)
-            .assert()
-            .failure()
-            .get_output()
-            .stdout
-            .clone();
-        let failure: Value = serde_json::from_slice(&failure).unwrap();
-        assert_eq!(failure["error"]["code"], "OMP_DISCOVERY_FAILED");
-        assert!(
-            failure["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains(expected_message)
-        );
-    }
-
-    let failed = Command::cargo_bin("membridge")
+    let relative = Command::cargo_bin("membridge")
         .unwrap()
-        .args(["skill", "install", "--omp"])
-        .env("PATH", &bin_dir)
-        .env("MEMBRIDGE_TEST_OMP_OUTPUT", "/ignored\n")
-        .env("MEMBRIDGE_TEST_OMP_STATUS", "9")
+        .args(["skill", "install"])
+        .env(USER_HOME_ENV, "relative/home")
         .assert()
         .failure()
         .get_output()
         .stdout
         .clone();
-    let failed: Value = serde_json::from_slice(&failed).unwrap();
-    assert_eq!(failed["error"]["code"], "OMP_DISCOVERY_FAILED");
+    let relative: Value = serde_json::from_slice(&relative).unwrap();
+    assert_eq!(relative["error"]["code"], "HOME_DIRECTORY_UNAVAILABLE");
     assert!(
-        failed["error"]["message"]
+        relative["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("exited with")
+            .contains("not absolute")
     );
 }
 
-#[cfg(unix)]
-fn write_fake_omp(bin_dir: &Path) {
-    fs::create_dir_all(bin_dir).unwrap();
-    let executable = bin_dir.join("omp");
-    fs::write(
-        &executable,
-        "#!/bin/sh\n\
-         if [ \"$1\" != config ] || [ \"$2\" != path ]; then exit 64; fi\n\
-         printf '%s' \"$MEMBRIDGE_TEST_OMP_OUTPUT\"\n\
-         exit \"${MEMBRIDGE_TEST_OMP_STATUS:-0}\"\n",
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&executable).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(executable, permissions).unwrap();
+#[test]
+fn portable_marketplace_exposes_the_canonical_versioned_skill() {
+    let catalog: Value =
+        serde_json::from_str(include_str!("../.claude-plugin/marketplace.json")).unwrap();
+    assert_eq!(catalog["name"], "membridge");
+    let plugin_version = format!("{}.skill.1", env!("CARGO_PKG_VERSION"));
+    assert_eq!(catalog["metadata"]["version"], plugin_version);
+
+    let plugin = &catalog["plugins"][0];
+    assert_eq!(plugin["name"], "membridge");
+    assert_eq!(plugin["version"], plugin_version);
+    assert_eq!(plugin["source"], "./.agents");
+    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 1);
+
+    let source = plugin["source"].as_str().unwrap();
+    let plugin_root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(source.strip_prefix("./").unwrap());
+    let marketplace_skill =
+        fs::read_to_string(plugin_root.join("skills/membridge/SKILL.md")).unwrap();
+    assert_eq!(
+        marketplace_skill,
+        include_str!("../.agents/skills/membridge/SKILL.md")
+    );
 }
 
 fn spec(max_matches: usize, patterns: Vec<ExactPatternSpec>) -> ScanSpec {

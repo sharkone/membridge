@@ -42,7 +42,7 @@ The first vertical slice is complete:
 - synthetic behavioral fixture;
 - stable source-derived coverage limitation codes;
 - embedded portable Agent Skill;
-- OMP-native and portable version-matched skill installation.
+- version-matched skill installation through the OMP marketplace or common user-level `.agents/skills` location.
 
 Current commands:
 
@@ -210,17 +210,21 @@ Literal search patterns, byte previews, and live comparison baselines are not pe
 
 ### AI integration
 
-The canonical Agent Skill is stored in `.agents/skills/membridge` and embedded into the binary. Skill text must describe only shipped commands and exact output semantics.
+The canonical Agent Skill is stored in `.agents/skills/membridge` and embedded into the binary. Skill text describes shipped capabilities, limits, output semantics, and useful analyses without imposing one mandatory workflow.
 
-`membridge skill install --omp` delegates active user-profile discovery to `omp config path` and installs under its `skills` directory. This preserves OMP profile and agent-directory semantics without duplicating them. `--target` remains the explicit portable-client path. Exactly one destination mode is required.
+The Agent Skills specification standardizes skill contents, not a universal marketplace catalog or user installation path. The canonical integration therefore remains `.agents/skills/membridge`, with `membridge skill install` writing the embedded version-matched copy to the common `~/.agents/skills` convention.
 
-Installation output reports matching binary and embedded-skill versions. Updates remain explicit: Membridge performs no background checks and replaces an installed skill only when the caller passes `--force`.
+The repository additionally carries a Claude Code-compatible marketplace adapter that OMP loads through its compatibility fallback. Its `membridge` plugin source is the canonical `.agents` directory, which already has the standard plugin-relative `skills/membridge` layout. The adapter is optional and does not make the tool or skill client-specific.
+
+Marketplace catalog and plugin versions use `<binary-version>.skill.<revision>`. The skill revision increments for marketplace-visible package changes that do not require a new native binary, while the binary prefix and skill runtime check preserve exact compatibility.
+
+Marketplace adapters own skill discovery and updates only. The canonical skill package includes explicit checksum-pinned shell and PowerShell bootstrap scripts for first binary installation, but adapters never execute them. An agent may offer the host script only when the version-matched executable is absent, must explain the executable download, and must obtain user approval before running it.
 
 ### Distribution
 
 Source and binary releases are licensed under `MIT OR Apache-2.0`. The first release channel is a GitHub prerelease with dist-generated archives, SHA-256 checksums, shell and PowerShell installers, and no package-registry publication. Alpha binaries are unsigned and not notarized.
 
-Installers place the binary under Cargo's binary directory. OMP integration remains an explicit second step through `membridge skill install --omp`; the binary performs no update checks or background network access.
+Installers place the binary under Cargo's binary directory. Portable clients can use `membridge skill install`; OMP and Claude Code may instead use the optional shared marketplace adapter. Ordinary commands perform no background network access, plugin installation never invokes the bootstrap, and bootstrap network access occurs only through a separately approved command.
 
 ### Network behavior
 

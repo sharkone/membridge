@@ -66,7 +66,6 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 ### Requirements
 
 - An authorized Windows x64 user-mode minidump for real analysis.
-- OMP on `PATH` when installing the Agent Skill.
 
 ### Install `v0.1.0-alpha.1`
 
@@ -77,17 +76,17 @@ curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.sh |
   sh
 
-membridge skill install --omp --force
+membridge skill install --target "$HOME/.agents/skills" --force
 ```
 
 Windows PowerShell:
 
 ```powershell
 irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.ps1 | iex
-membridge skill install --omp --force
+membridge skill install --target "$HOME\.agents\skills" --force
 ```
 
-The installers place `membridge` under Cargo's binary directory. Start a new OMP session after installing the skill. Alpha binaries are checksummed but unsigned and not notarized.
+The release installers place `membridge` under Cargo's binary directory. The published alpha requires the explicit `--target` shown above; current development builds use the same common location by default. Agent discovery support for that location varies. Alpha binaries are checksummed but unsigned and not notarized.
 
 ### Install the latest development build
 
@@ -99,10 +98,10 @@ cargo install \
   --locked \
   --force
 
-membridge skill install --omp --force
+membridge skill install --force
 ```
 
-Development installation requires Rust and OMP on `PATH`.
+Development installation requires Rust on `PATH`.
 
 ### Build
 
@@ -135,7 +134,7 @@ The no-access decoy is excluded, and coverage reports 4,096 unavailable readable
 membridge inspect <dump>
 membridge scan <dump> --spec <path|->
 membridge read <dump> --address <address> [--length <1..65536>]
-membridge skill install (--omp | --target <skills-root>) [--force]
+membridge skill install [--force]
 ```
 
 Command execution emits one compact JSON object. Standard metadata flags such as `--help` and `--version` print text and exit successfully. Success responses have:
@@ -229,33 +228,61 @@ Reads return one or more valid segments. `complete: false` means some requested 
 
 ## Agent Skill
 
-The canonical portable skill lives at [.agents/skills/membridge](.agents/skills/membridge). OMP discovers it directly in this repository through its Agent Skills provider.
+The canonical portable skill lives at [.agents/skills/membridge](.agents/skills/membridge). Agent Skills clients can discover it directly from this repository, and the binary embeds the same files at compile time.
 
-The binary embeds the same files at compile time. To install the version-matched skill into the active OMP-native user profile:
+The Agent Skills specification standardizes the skill directory and `SKILL.md`, not a universal marketplace catalog or user installation path. `.agents/skills` is the cross-client convention; marketplace adapters remain optional client integrations.
+
+### Portable direct install
+
+Current development builds install the embedded version-matched skill into the common user location:
 
 ```sh
-membridge skill install --omp
+membridge skill install
 ```
 
-This runs `omp config path`, then installs under that agent directory:
+The destination is `~/.agents/skills/membridge`. Membridge reads `HOME` on macOS and Linux and `USERPROFILE`, with `HOME` as a fallback, on Windows. The resolved home directory must be absolute; unavailable or invalid home discovery reports `HOME_DIRECTORY_UNAVAILABLE`.
+
+Installation output includes matching `binary_version` and `skill_version` fields. Installed copies do not update automatically; rerun the command with `--force` after updating the binary.
+
+The installed skill also includes explicit, version-pinned binary bootstrap scripts under `scripts/`. If the matching executable is absent, an agent may offer to run the host script after explaining the download and receiving user approval:
+
+```sh
+sh scripts/install.sh
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+The scripts enforce download size limits and SHA-256 verification before installing executable code, then verify `membridge --version`. They skip installation when the matching binary is already available. They never run during skill discovery or activation and perform no update check after installation.
+
+Clients that do not scan the common user location can install the repository skill through their own Agent Skills installer or native skill directory. The tool and canonical skill do not depend on OMP, Claude Code, or another specific coding agent.
+
+### Optional OMP and Claude Code marketplace adapter
+
+There is no generic marketplace directory in the Agent Skills standard. `.agents/plugins/marketplace.json` is currently a Codex plugin catalog with a different schema, not a portable replacement. The canonical `.agents/skills` tree already covers Agent Skills-compatible clients, including Codex skill discovery. This repository therefore keeps marketplace packaging optional and uses the Claude Code-compatible `.claude-plugin/marketplace.json` adapter because OMP deliberately loads that same format as a compatibility fallback.
+
+OMP:
+
+```sh
+omp plugin marketplace add sharkone/membridge
+omp plugin install membridge@membridge
+```
+
+Claude Code:
 
 ```text
-<active-omp-agent-dir>/skills/membridge/
-  SKILL.md
-  examples/canary-batch.json
+/plugin marketplace add sharkone/membridge
+/plugin install membridge@membridge
 ```
 
-OMP must be on `PATH`. Delegating path discovery to OMP honors its active profile and configured agent directory. Missing OMP reports `OMP_NOT_FOUND`; invalid or failed discovery reports `OMP_DISCOVERY_FAILED`.
+The catalog points directly at the canonical `.agents` tree, whose `skills/membridge` directory is already a valid plugin layout. No second skill copy is maintained.
 
-For another Agent Skills-compatible client, provide its skills root explicitly:
+Marketplace package versions use `<binary-version>.skill.<revision>`. This lets skill-only releases upgrade independently while preserving the exact compatible Membridge binary version; the skill still checks that binary before use.
 
-```sh
-membridge skill install --target ~/.agents/skills
-```
+The marketplace adapter installs and updates the skill package, including its opt-in bootstrap scripts, but does not execute them. Plugin installation has no portable arbitrary lifecycle-hook contract; native installation therefore remains a separate, explicit, user-approved action.
 
-Installation output includes `binary_version` and `skill_version`; they are identical because the skill is embedded at compile time. Installed copies do not update automatically. After updating the binary, rerun the command with `--force`, then start a new OMP session.
-
-The skill teaches coverage-first scanning, deterministic representation generation, bounded reads, and evidence language. It contains no unimplemented roadmap commands.
+The skill describes the available commands, analyses, limits, result semantics, and deliberate boundaries. It contains no unimplemented roadmap commands.
 
 ## Use cases
 
@@ -286,6 +313,7 @@ src/protocol.rs   schema-v1 success and failure envelopes
 src/skill.rs      version-matched embedded skill installer
 src/main.rs       compact CLI surface
 .agents/skills/   canonical portable AI workflow knowledge
+.claude-plugin/    Claude Code-compatible marketplace catalog loaded by OMP
 tests/            behavioral source, scanner, quota, read, CLI, and skill tests
 examples/         deterministic fixture and runnable demo
 ```

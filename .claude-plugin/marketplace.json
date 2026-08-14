@@ -1,0 +1,32 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "membridge",
+  "owner": {
+    "name": "sharkone"
+  },
+  "metadata": {
+    "description": "Official Membridge plugins for process-memory inspection",
+    "version": "0.1.0-alpha.1.skill.1"
+  },
+  "plugins": [
+    {
+      "name": "membridge",
+      "description": "Inspect and deterministically scan authorized Windows x64 process minidumps",
+      "version": "0.1.0-alpha.1.skill.1",
+      "author": {
+        "name": "sharkone"
+      },
+      "homepage": "https://github.com/sharkone/membridge",
+      "repository": "https://github.com/sharkone/membridge",
+      "license": "MIT OR Apache-2.0",
+      "category": "development",
+      "keywords": [
+        "memory",
+        "minidump",
+        "debugging",
+        "reverse-engineering"
+      ],
+      "source": "./.agents"
+    }
+  ]
+}

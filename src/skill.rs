@@ -1,14 +1,14 @@
 use serde::Serialize;
+use std::env;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use crate::{Error, Result};
 
 const SKILL: &str = include_str!("../.agents/skills/membridge/SKILL.md");
 const CANARY_BATCH: &str = include_str!("../.agents/skills/membridge/examples/canary-batch.json");
-const MAX_OMP_PATH_OUTPUT: u64 = 4096;
+const INSTALL_SH: &str = include_str!("../.agents/skills/membridge/scripts/install.sh");
+const INSTALL_PS1: &str = include_str!("../.agents/skills/membridge/scripts/install.ps1");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InstallReport {
@@ -19,12 +19,12 @@ pub struct InstallReport {
     pub skill_version: &'static str,
 }
 
-pub fn install_for_omp(force: bool) -> Result<InstallReport> {
-    let agent_root = omp_agent_root()?;
-    install(&agent_root.join("skills"), force)
+pub fn install(force: bool) -> Result<InstallReport> {
+    let skills_root = user_home()?.join(".agents").join("skills");
+    install_at(&skills_root, force)
 }
 
-pub fn install(target_root: &Path, force: bool) -> Result<InstallReport> {
+fn install_at(target_root: &Path, force: bool) -> Result<InstallReport> {
     create_dir_all(target_root)?;
     let destination = target_root.join("membridge");
     let replaced = destination.exists();
@@ -39,100 +39,83 @@ pub fn install(target_root: &Path, force: bool) -> Result<InstallReport> {
     if staging.exists() {
         remove_dir_all(&staging)?;
     }
+    let backup = target_root.join(format!(".membridge-backup-{}", std::process::id()));
+    if backup.exists() {
+        return Err(Error::InvalidArgument(format!(
+            "skill backup {} already exists; preserve or remove it before retrying",
+            backup.display()
+        )));
+    }
     create_dir_all(&staging.join("examples"))?;
+    create_dir_all(&staging.join("scripts"))?;
     write(&staging.join("SKILL.md"), SKILL)?;
     write(
         &staging.join("examples").join("canary-batch.json"),
         CANARY_BATCH,
     )?;
+    let install_sh = staging.join("scripts").join("install.sh");
+    write(&install_sh, INSTALL_SH)?;
+    make_executable(&install_sh)?;
+    write(&staging.join("scripts").join("install.ps1"), INSTALL_PS1)?;
 
     if replaced {
-        remove_dir_all(&destination)?;
+        fs::rename(&destination, &backup).map_err(|source| Error::Io {
+            path: backup.clone(),
+            source,
+        })?;
     }
-    fs::rename(&staging, &destination).map_err(|source| Error::Io {
-        path: destination.clone(),
-        source,
-    })?;
+    if let Err(install_error) = fs::rename(&staging, &destination) {
+        if replaced {
+            if let Err(rollback_error) = fs::rename(&backup, &destination) {
+                return Err(Error::Io {
+                    path: destination.clone(),
+                    source: std::io::Error::other(format!(
+                        "install failed: {install_error}; rollback failed: {rollback_error}; previous skill remains at {}",
+                        backup.display()
+                    )),
+                });
+            }
+        }
+        return Err(Error::Io {
+            path: destination.clone(),
+            source: install_error,
+        });
+    }
+    if replaced {
+        remove_dir_all(&backup)?;
+    }
 
     Ok(InstallReport {
         destination: destination.to_string_lossy().into_owned(),
-        files: vec!["SKILL.md", "examples/canary-batch.json"],
+        files: vec![
+            "SKILL.md",
+            "examples/canary-batch.json",
+            "scripts/install.sh",
+            "scripts/install.ps1",
+        ],
         replaced,
         binary_version: env!("CARGO_PKG_VERSION"),
         skill_version: env!("CARGO_PKG_VERSION"),
     })
 }
 
-fn omp_agent_root() -> Result<PathBuf> {
-    let mut child = Command::new("omp")
-        .args(["config", "path"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|source| {
-            if source.kind() == std::io::ErrorKind::NotFound {
-                Error::OmpNotFound
-            } else {
-                Error::OmpDiscovery(format!("could not start `omp config path`: {source}"))
-            }
-        })?;
+fn user_home() -> Result<PathBuf> {
+    #[cfg(windows)]
+    let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+    #[cfg(not(windows))]
+    let home = env::var_os("HOME");
 
-    let mut output = Vec::with_capacity(MAX_OMP_PATH_OUTPUT as usize + 1);
-    let read_result = child
-        .stdout
-        .take()
-        .expect("piped OMP stdout must be available")
-        .take(MAX_OMP_PATH_OUTPUT + 1)
-        .read_to_end(&mut output);
-    if let Err(source) = read_result {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(Error::OmpDiscovery(format!(
-            "could not read `omp config path` output: {source}"
+    let home = home.filter(|value| !value.is_empty()).ok_or_else(|| {
+        Error::HomeDirectoryUnavailable("the user home environment variable is unset".into())
+    })?;
+    let home = PathBuf::from(home);
+    if !home.is_absolute() {
+        return Err(Error::HomeDirectoryUnavailable(format!(
+            "the user home path is not absolute: {}",
+            home.display()
         )));
     }
-    if output.len() > MAX_OMP_PATH_OUTPUT as usize {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(Error::OmpDiscovery(format!(
-            "`omp config path` output exceeds {MAX_OMP_PATH_OUTPUT} bytes"
-        )));
-    }
-
-    let status = child
-        .wait()
-        .map_err(|source| Error::OmpDiscovery(format!("could not wait for OMP: {source}")))?;
-    if !status.success() {
-        return Err(Error::OmpDiscovery(format!(
-            "`omp config path` exited with {status}"
-        )));
-    }
-
-    let output = std::str::from_utf8(&output)
-        .map_err(|_| Error::OmpDiscovery("`omp config path` returned non-UTF-8 output".into()))?;
-    let output = output
-        .strip_suffix("\r\n")
-        .or_else(|| output.strip_suffix('\n'))
-        .unwrap_or(output);
-    if output.is_empty() {
-        return Err(Error::OmpDiscovery(
-            "`omp config path` returned an empty path".into(),
-        ));
-    }
-    if output.contains('\r') || output.contains('\n') {
-        return Err(Error::OmpDiscovery(
-            "`omp config path` returned multiple lines".into(),
-        ));
-    }
-
-    let path = PathBuf::from(output);
-    if !path.is_absolute() {
-        return Err(Error::OmpDiscovery(
-            "`omp config path` returned a non-absolute path".into(),
-        ));
-    }
-    Ok(path)
+    Ok(home)
 }
 
 fn create_dir_all(path: &Path) -> Result<()> {
@@ -147,6 +130,28 @@ fn remove_dir_all(path: &Path) -> Result<()> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .map_err(|source| Error::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).map_err(|source| Error::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn write(path: &Path, contents: &str) -> Result<()> {

@@ -52,18 +52,8 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum SkillCommand {
-    /// Install the version-matched skill under a portable or OMP-native skills root.
+    /// Install the version-matched skill under ~/.agents/skills.
     Install {
-        #[arg(
-            long,
-            value_name = "SKILLS_ROOT",
-            required_unless_present = "omp",
-            conflicts_with = "omp"
-        )]
-        target: Option<PathBuf>,
-        /// Resolve the active OMP user profile through `omp config path`.
-        #[arg(long, conflicts_with = "target")]
-        omp: bool,
         #[arg(long)]
         force: bool,
     },
@@ -203,18 +193,9 @@ fn run(command: Command) -> Result<serde_json::Value> {
             serde_json::to_value(Success::new("read", data)).map_err(Error::from)
         }
         Command::Skill {
-            command: SkillCommand::Install { target, omp, force },
+            command: SkillCommand::Install { force },
         } => {
-            let report = if omp {
-                skill::install_for_omp(force)?
-            } else {
-                skill::install(
-                    target
-                        .as_deref()
-                        .expect("clap requires either --target or --omp"),
-                    force,
-                )?
-            };
+            let report = skill::install(force)?;
             serde_json::to_value(Success::new("skill.install", report)).map_err(Error::from)
         }
     }
