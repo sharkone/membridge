@@ -288,6 +288,35 @@ fn cli_installs_the_version_matched_agent_skill() {
 }
 
 #[test]
+fn cli_help_and_version_flags_exit_successfully() {
+    let version = Command::cargo_bin("membridge")
+        .unwrap()
+        .arg("--version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        String::from_utf8(version).unwrap(),
+        format!("membridge {}\n", env!("CARGO_PKG_VERSION"))
+    );
+
+    let help = Command::cargo_bin("membridge")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(help).unwrap();
+    assert!(help.contains("Usage:"));
+    assert!(help.contains("<COMMAND>"));
+    assert!(help.contains("Commands:"));
+}
+
+#[test]
 fn cli_requires_exactly_one_skill_destination() {
     let missing = Command::cargo_bin("membridge")
         .unwrap()

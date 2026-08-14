@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use membridge::protocol::{Failure, Success};
 use membridge::scan::{ScanReport, ScanSpec, scan};
@@ -115,6 +116,14 @@ struct ReadSegmentView {
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            error.exit()
+        }
         Err(error) => {
             let error = Error::InvalidArgument(error.to_string());
             print_json(&Failure::from_error("cli", &error));
