@@ -743,8 +743,17 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
         max_matches: 10,
     };
     let report = scan(process.as_ref(), &scan_spec).unwrap();
-    assert_eq!(report.matches.len(), 1);
-    assert_eq!(report.matches[0].address.0, readable_address);
+    // The canary is a `const` in the target binary, so it may also appear
+    // once in the target's own loaded module image (rodata) in addition to
+    // the VirtualAlloc'd page written at runtime; assert the specific page we
+    // set up is found, not an exact incidental total.
+    assert!(!report.matches.is_empty());
+    assert!(
+        report
+            .matches
+            .iter()
+            .any(|found| found.address.0 == readable_address)
+    );
 }
 
 fn spec(max_matches: usize, patterns: Vec<ExactPatternSpec>) -> ScanSpec {
