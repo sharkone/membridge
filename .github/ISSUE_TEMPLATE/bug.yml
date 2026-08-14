@@ -1,0 +1,68 @@
+name: Bug report
+description: Report incorrect, incomplete, unsafe, or nondeterministic behavior.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach real process dumps, credentials, memory previews, or production secrets. Prefer the synthetic fixture or a minimal sanitized reproducer.
+  - type: input
+    id: version
+    attributes:
+      label: Membridge version or commit
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Command
+      options:
+        - inspect
+        - scan
+        - read
+        - skill install
+        - build or test
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include commands and sanitized inputs. State whether the repository fixture reproduces it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected observable behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual observable behavior
+      description: Include stable error codes and coverage fields, with sensitive content removed.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I am authorized to inspect the relevant process or capture.
+          required: true
+        - label: This issue contains no real dump, credential, secret, or private memory bytes.
+          required: true

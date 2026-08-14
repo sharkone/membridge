@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "patterns": [
+    {
+      "tag": "membridge-canary.utf8",
+      "bytes_hex": "4d42524944474521",
+      "alignment": 1
+    },
+    {
+      "tag": "membridge-canary.utf16le",
+      "bytes_hex": "4d004200520049004400470045002100",
+      "alignment": 2
+    }
+  ],
+  "max_matches": 10000
+}

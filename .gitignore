@@ -1,0 +1,12 @@
+/target
+.DS_Store
+
+# Process-memory captures and local analysis state
+*.dmp
+*.raw
+*.mem
+.membridge/
+
+# Local credentials and environment
+.env
+.env.*

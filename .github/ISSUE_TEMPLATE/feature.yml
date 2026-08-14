@@ -1,0 +1,57 @@
+name: Capability proposal
+description: Propose one bounded, observable Membridge capability.
+title: "proposal: "
+labels:
+  - proposal
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Authorized workflow problem
+      description: Describe the concrete analysis task and why existing commands cannot perform it.
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Proposed observable contract
+      description: Describe inputs, bounded JSON outputs, incomplete states, and errors—not implementation preferences.
+    validations:
+      required: true
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Roadmap area
+      options:
+        - Windows capture
+        - Typed patterns
+        - Daemon and result sets
+        - Direct Windows live source
+        - Value refinement
+        - Pointer chains
+        - VMM acquisition
+        - Optional analysis engine
+        - Separate mutation security track
+    validations:
+      required: true
+  - type: textarea
+    id: coverage
+    attributes:
+      label: Coverage and failure semantics
+      description: Explain partial reads, volatility, quotas, cancellation, or other ways the result may be incomplete.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy implications
+      description: Address privileges, persistence, network behavior, sensitive output, and whether read-only authority changes.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Acceptance evidence
+      description: Name the end-to-end scenario that proves the capability.
+    validations:
+      required: true
