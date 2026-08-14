@@ -6,7 +6,7 @@ use serde::{Serialize, Serializer};
 
 use crate::Result;
 
-pub use minidump::MinidumpSource;
+pub use minidump::{MAX_CAPTURED_SEGMENTS, MAX_MEMORY_REGIONS, MAX_MODULES, MinidumpSource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Address(pub u64);

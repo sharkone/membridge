@@ -59,7 +59,7 @@ pub struct ScanMatch {
 pub struct RegionAttribution {
     pub id: usize,
     pub base: Address,
-    pub offset: u64,
+    pub offset: Address,
     pub kind: String,
     pub protection: String,
 }
@@ -68,7 +68,7 @@ pub struct RegionAttribution {
 pub struct ModuleAttribution {
     pub name: String,
     pub base: Address,
-    pub rva: u64,
+    pub rva: Address,
 }
 
 pub fn scan(process: &dyn ProcessMemory, spec: &ScanSpec) -> Result<ScanReport> {
@@ -268,7 +268,7 @@ fn attributed_match(
         .map(|region| RegionAttribution {
             id: region.id,
             base: region.base,
-            offset: address - region.base.0,
+            offset: Address(address - region.base.0),
             kind: region.kind.clone(),
             protection: region.protection.clone(),
         });
@@ -278,7 +278,7 @@ fn attributed_match(
         .map(|module| ModuleAttribution {
             name: module.name.clone(),
             base: module.base,
-            rva: address - module.base.0,
+            rva: Address(address - module.base.0),
         });
     ScanMatch {
         address: Address(address),

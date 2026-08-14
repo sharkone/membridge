@@ -3,9 +3,11 @@ mod common;
 use std::fs;
 
 use assert_cmd::Command;
+use membridge::Error;
 use membridge::scan::{ExactPatternSpec, ScanSpec, scan};
 use membridge::source::{
-    CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemorySource, MinidumpSource,
+    Address, CoverageLimitation, MAX_CAPTURED_SEGMENTS, MAX_COVERAGE_LIMITATIONS, MemorySource,
+    MinidumpSource,
 };
 use serde_json::Value;
 use tempfile::tempdir;
@@ -16,7 +18,7 @@ const USER_HOME_ENV: &str = "HOME";
 
 use common::{
     BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, MemoryMetadataFixture, NOACCESS_DECOY,
-    write_coverage_fixture, write_fixture,
+    write_coverage_fixture, write_fixture, write_oversized_capture_fixture,
 };
 
 #[test]
@@ -46,6 +48,17 @@ fn minidump_reports_modules_regions_and_partial_coverage() {
         coverage.limitations,
         [CoverageLimitation::KnownReadableBytesMissing]
     );
+}
+
+#[test]
+fn oversized_captured_segment_count_fails_closed_instead_of_hanging() {
+    let temp = tempdir().unwrap();
+    let dump_path = temp.path().join("oversized.dmp");
+    write_oversized_capture_fixture(&dump_path, MAX_CAPTURED_SEGMENTS + 1);
+
+    let error = MinidumpSource::open(&dump_path).unwrap_err();
+    assert_eq!(error.code(), "SOURCE_TOO_LARGE");
+    assert!(matches!(error, Error::SourceTooLarge(_)));
 }
 
 #[test]
@@ -110,7 +123,10 @@ fn exact_scan_finds_boundary_matches_and_skips_noaccess_memory() {
             .iter()
             .all(|found| found.address.0 != NOACCESS_DECOY)
     );
-    assert_eq!(report.matches[0].module.as_ref().unwrap().rva, 0x100);
+    assert_eq!(
+        report.matches[0].module.as_ref().unwrap().rva,
+        Address(0x100)
+    );
 }
 
 #[test]
@@ -174,7 +190,7 @@ fn cli_emits_one_compact_json_object_per_command() {
         .stdout
         .clone();
     let inspect: Value = serde_json::from_slice(&inspect).unwrap();
-    assert_eq!(inspect["schema"], 1);
+    assert_eq!(inspect["schema"], 2);
     assert_eq!(inspect["ok"], true);
     assert_eq!(inspect["command"], "inspect");
     assert_eq!(inspect["data"]["coverage"]["coverage_complete"], false);

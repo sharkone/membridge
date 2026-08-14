@@ -19,6 +19,17 @@ use crate::{Error, Result};
 
 const PROCESS_ID: &str = "process:0";
 
+/// Hard caps on minidump-derived structure counts. A crafted dump can pack an
+/// attacker-controlled memory range descriptor into as little as 16 bytes with a
+/// zero-length payload, and the region/segment interactions below are quadratic in
+/// these counts; without a bound, a small hostile file can force minutes of CPU work
+/// before any command returns. These limits are far above any real-world capture
+/// (large processes rarely exceed a few thousand regions or modules) and, once hit,
+/// fail closed with `SOURCE_TOO_LARGE` rather than silently truncating or hanging.
+pub const MAX_CAPTURED_SEGMENTS: usize = 32_768;
+pub const MAX_MEMORY_REGIONS: usize = 32_768;
+pub const MAX_MODULES: usize = 32_768;
+
 #[derive(Clone, Debug)]
 struct SharedMmap(Arc<Mmap>);
 
@@ -69,7 +80,14 @@ impl MinidumpSource {
             path: path.to_path_buf(),
             source,
         })?;
-        // SAFETY: the mapping is read-only and retained for every borrowed slice derived from it.
+        // SAFETY: `Mmap::map` is unsound in general if the backing file is mutated,
+        // truncated, or replaced by another process while mapped, which can turn a live
+        // `&[u8]` borrow into a reference over changing memory or trigger SIGBUS on a
+        // truncated read. Membridge treats an opened dump as a static forensic artifact
+        // for the lifetime of this process and relies on the caller not to mutate the
+        // file underneath an active analysis; this mapping is opened read-only, no write
+        // or protection-changing call is ever made against it, and its `&[u8]` view is
+        // retained unchanged for the source's entire lifetime.
         let mmap = unsafe { Mmap::map(&file) }.map_err(|source| Error::Io {
             path: path.to_path_buf(),
             source,
@@ -109,6 +127,11 @@ impl MinidumpSource {
                 length: bytes.len() as u64,
                 file_offset: start - data_start,
             });
+            if captured.len() > MAX_CAPTURED_SEGMENTS {
+                return Err(Error::SourceTooLarge(format!(
+                    "captured memory range count exceeds the {MAX_CAPTURED_SEGMENTS} limit"
+                )));
+            }
         }
         validate_captured_segments(&captured)?;
 
@@ -125,6 +148,12 @@ impl MinidumpSource {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        if modules.len() > MAX_MODULES {
+            return Err(Error::SourceTooLarge(format!(
+                "module count {} exceeds the {MAX_MODULES} limit",
+                modules.len()
+            )));
+        }
 
         let (memory_info, memory_metadata_limitation) =
             match dump.get_stream::<MinidumpMemoryInfoList>() {
@@ -173,6 +202,12 @@ impl MinidumpSource {
                 })
                 .collect()
         };
+        if regions.len() > MAX_MEMORY_REGIONS {
+            return Err(Error::SourceTooLarge(format!(
+                "memory region count {} exceeds the {MAX_MEMORY_REGIONS} limit",
+                regions.len()
+            )));
+        }
 
         let expected_readable_bytes = regions
             .iter()
@@ -301,7 +336,10 @@ impl ProcessMemory for MinidumpProcess {
             .ok_or_else(|| Error::InvalidArgument("read range overflows u64".into()))?;
         let mut output = Vec::new();
         for segment in &self.captured {
-            let segment_end = segment.address + segment.length;
+            let segment_end = segment
+                .address
+                .checked_add(segment.length)
+                .ok_or_else(|| Error::SourceInvariant("captured address range overflow".into()))?;
             let start = address.max(segment.address);
             let end = requested_end.min(segment_end);
             if start >= end {

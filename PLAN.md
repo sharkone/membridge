@@ -38,7 +38,7 @@ The first vertical slice is complete:
 - tagged exact-byte batch scanner;
 - deterministic match quotas;
 - bounded gap-aware reads;
-- compact schema-v1 JSON;
+- compact schema-v2 JSON;
 - synthetic behavioral fixture;
 - stable source-derived coverage limitation codes;
 - embedded portable Agent Skill;
@@ -204,6 +204,8 @@ The parser emits these codes only from observed source conditions. Missing or un
 
 Reads, patterns, matches, jobs, and future result sets are bounded by construction. Reaching a limit produces explicit incomplete output, never silent truncation.
 
+Minidump parsing additionally caps captured memory-range, region, and module counts at 32,768 each (`source::MAX_CAPTURED_SEGMENTS`, `MAX_MEMORY_REGIONS`, `MAX_MODULES`). A crafted dump can otherwise pack a captured-segment descriptor into 16 bytes, and the region-attribution and scan-extent algorithms are quadratic in these counts; exceeding a cap fails closed with `SOURCE_TOO_LARGE` before that work runs, rather than allowing an unbounded-time hang.
+
 ### Sensitive persistence
 
 Literal search patterns, byte previews, and live comparison baselines are not persisted by default. Source fingerprints, addresses, metadata, and non-sensitive indexes may persist.
@@ -246,6 +248,6 @@ A capability is complete only when:
 
 - Signing, notarization, and public package registries after alpha validation.
 - Numeric resource defaults after representative large-dump benchmarks.
-- At-rest encryption if sessions become a team feature.
+- Rewriting `captured_overlap`, `build_scan_extents`, and `attributed_match` to use sorted-merge or binary-search lookups instead of nested linear scans, now that counts are capped; deferred because the caps already bound worst-case cost and a full rewrite is unwarranted algorithmic churn without a demonstrated need.
 - The exact VMM licensing and packaging model.
 - Whether a future UI is justified after the CLI and skill workflows mature.

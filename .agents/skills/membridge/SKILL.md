@@ -134,7 +134,7 @@ Useful evidence language:
 - **not observed in complete scope:** scanning and coverage were both complete;
 - **unknown:** scanning stopped, failed, or omitted relevant memory.
 
-Addresses are fixed-width hexadecimal strings such as `"0x0000000140000100"`. Do not coerce them through lossy floating-point JSON numbers. Do not concatenate read segments across a gap.
+Addresses, region offsets, and module RVAs are all fixed-width hexadecimal strings such as `"0x0000000140000100"`. Do not coerce them through lossy floating-point JSON numbers. Do not concatenate read segments across a gap.
 
 ## Current boundary
 
@@ -150,6 +150,6 @@ It does not currently:
 - infer structures or crash causes;
 - contact network services.
 
-Every command emits one compact schema-v1 JSON object. Failures contain a stable error code, message, and retryability flag. Do not suppress failures or treat partial output as complete.
+Every command emits one compact schema-v2 JSON object. Failures contain a stable error code, message, and retryability flag. Do not suppress failures or treat partial output as complete.
 
 Only inspect processes and dumps the user is authorized to analyze.

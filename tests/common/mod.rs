@@ -77,3 +77,24 @@ fn memory_info(endian: Endian, base: u64, size: u64, protection: u32) -> MemoryI
         0x0002_0000,
     )
 }
+
+/// Writes a synthetic minidump with `segment_count` distinct, tiny, non-overlapping
+/// Memory64List descriptors. Used to prove that opening a source with an
+/// attacker-inflated captured-segment count fails closed instead of driving the
+/// downstream region/scan-extent algorithms into unbounded work.
+pub fn write_oversized_capture_fixture(path: &Path, segment_count: usize) {
+    let endian = Endian::Little;
+    let system = SystemInfo::new(endian)
+        .set_processor_architecture(9) // PROCESSOR_ARCHITECTURE_AMD64
+        .set_platform_id(2); // VER_PLATFORM_WIN32_NT
+
+    let mut dump = SynthMinidump::new().add_system_info(system);
+    for index in 0..segment_count {
+        let address = BASE + (index as u64) * 0x10;
+        let memory =
+            Memory::with_section(Section::with_endian(endian).append_bytes(&[0_u8]), address);
+        dump = dump.add_memory64(memory);
+    }
+    let dump = dump.finish().expect("synthetic minidump labels resolve");
+    fs::write(path, dump).expect("write synthetic minidump");
+}

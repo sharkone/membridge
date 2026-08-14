@@ -17,7 +17,7 @@ Shipped capabilities:
 - tagged exact-byte batch scanning;
 - deterministic match limits;
 - bounded gap-aware reads;
-- compact schema-v1 JSON;
+- compact schema-v2 JSON;
 - embedded Agent Skill installation.
 
 Before changing behavior, read:
@@ -68,7 +68,7 @@ Do not add telemetry, symbol downloads, update checks, remote listeners, or outb
 
 ```text
 src/error.rs             stable internal errors and protocol codes
-src/protocol.rs          schema-v1 JSON envelopes
+src/protocol.rs          schema-v2 JSON envelopes
 src/source/mod.rs        read-only acquisition-neutral traits and models
 src/source/minidump.rs   Windows x64 minidump adapter
 src/scan.rs              deterministic exact-byte scanner

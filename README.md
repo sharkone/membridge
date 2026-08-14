@@ -44,7 +44,7 @@ flowchart LR
 - Per-pattern alignment constraints.
 - Deterministic result ordering and hard match quotas.
 - Gap-aware reads capped at 65,536 bytes.
-- One compact schema-v1 JSON object per command.
+- One compact schema-v2 JSON object per command.
 - A version-matched portable Agent Skill embedded in the binary.
 
 ## Deliberate boundaries
@@ -141,7 +141,7 @@ Command execution emits one compact JSON object. Standard metadata flags such as
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "ok": true,
   "command": "inspect",
   "data": {}
@@ -309,7 +309,7 @@ Only use Membridge on processes and captures you are authorized to inspect.
 ```text
 src/source/       acquisition-neutral read-only interfaces and minidump adapter
 src/scan.rs       deterministic tagged exact-byte scanner
-src/protocol.rs   schema-v1 success and failure envelopes
+src/protocol.rs   schema-v2 success and failure envelopes
 src/skill.rs      version-matched embedded skill installer
 src/main.rs       compact CLI surface
 .agents/skills/   canonical portable AI workflow knowledge

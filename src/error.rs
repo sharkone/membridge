@@ -22,6 +22,8 @@ pub enum Error {
     HomeDirectoryUnavailable(String),
     #[error("memory source invariant failed: {0}")]
     SourceInvariant(String),
+    #[error("minidump source exceeds a processing limit: {0}")]
+    SourceTooLarge(String),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -37,6 +39,7 @@ impl Error {
             Self::InvalidArgument(_) => "INVALID_ARGUMENT",
             Self::HomeDirectoryUnavailable(_) => "HOME_DIRECTORY_UNAVAILABLE",
             Self::SourceInvariant(_) => "SOURCE_INVARIANT",
+            Self::SourceTooLarge(_) => "SOURCE_TOO_LARGE",
             Self::Json(_) => "INVALID_JSON",
         }
     }

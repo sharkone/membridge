@@ -9,6 +9,8 @@
 - Added an optional Claude Code-compatible marketplace adapter that OMP also loads; it exposes the canonical skill without making the tool or skill client-specific.
 - The canonical skill now packages opt-in, checksum-pinned shell and PowerShell binary bootstrap scripts. Marketplace installation never executes them; agents must obtain explicit approval before a bootstrap downloads executable code.
 - Published the current skill-only marketplace revision as `0.1.0-alpha.1.skill.2`, explicitly compatible with the previously published `0.1.0-alpha.1` binary.
+- `scan` region `offset` and module `rva` fields are now fixed-width hexadecimal `Address` strings instead of JSON numbers, matching every other address field. This is an incompatible response change: `protocol.SCHEMA_VERSION` is now `2`.
+- Minidump parsing now caps captured memory-range, region, and module counts at 32,768 each and fails closed with a new `SOURCE_TOO_LARGE` error instead of driving unbounded region-attribution work on a crafted dump.
 
 ## [0.1.0-alpha.1] - 2026-08-14
 

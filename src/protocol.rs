@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::Error;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize)]
 pub struct Success<T> {
