@@ -401,12 +401,9 @@ fn powershell_bootstrap_skips_a_matching_binary_without_network() {
     let temp = tempdir().unwrap();
     let fake_bin = temp.path().join("bin");
     fs::create_dir(&fake_bin).unwrap();
-    fs::write(
-        fake_bin.join("membridge.cmd"),
-        format!(
-            "@echo off\r\necho membridge {}\r\nexit /b 0\r\n",
-            env!("CARGO_PKG_VERSION")
-        ),
+    fs::copy(
+        env!("CARGO_BIN_EXE_membridge"),
+        fake_bin.join("membridge.exe"),
     )
     .unwrap();
 
@@ -432,7 +429,12 @@ fn powershell_bootstrap_skips_a_matching_binary_without_network() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stdout).contains("is already installed"));
 }
 
