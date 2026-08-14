@@ -11,7 +11,7 @@
 
 Membridge gives humans, scripts, and AI coding agents a compact read-only interface to authorized process-memory captures. The tool performs exact mechanics—coverage inspection, byte scanning, address attribution, and bounded reads—while the caller decides what values mean and how findings relate to source code.
 
-The project is an early private prototype. Its first source is Windows x64 user-mode minidumps; live process and DMA acquisition remain roadmap work.
+The project is an early public prototype. Its first source is Windows x64 user-mode minidumps; live process and DMA acquisition remain roadmap work.
 
 ## Why Membridge?
 
@@ -66,6 +66,21 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 
 - Stable Rust 1.87 or newer.
 - An authorized Windows x64 user-mode minidump for real analysis.
+
+### Install the latest development build
+
+The repository is public but has not published a versioned release. Install the current `main` revision directly from GitHub:
+
+```sh
+cargo install \
+  --git https://github.com/sharkone/membridge.git \
+  --locked \
+  --force
+
+membridge skill install --omp --force
+```
+
+This requires Rust and OMP on `PATH`. Start a new OMP session after installing the skill.
 
 ### Build
 
@@ -268,4 +283,4 @@ Repository expectations and invariants are defined in [AGENTS.md](AGENTS.md). Pl
 
 ## Status and licensing
 
-This repository is private and has no redistribution license. All rights are reserved unless a license is added explicitly. The VMM/MemProcFS integration remains gated on a deliberate distribution and license decision.
+This repository is public and has no redistribution license. Public visibility does not grant redistribution rights; all rights are reserved unless a license is added explicitly. Binary releases and the VMM/MemProcFS integration remain gated on deliberate distribution and license decisions.

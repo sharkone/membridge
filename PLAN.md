@@ -216,6 +216,10 @@ The canonical Agent Skill is stored in `.agents/skills/membridge` and embedded i
 
 Installation output reports matching binary and embedded-skill versions. Updates remain explicit: Membridge performs no background checks and replaces an installed skill only when the caller passes `--force`.
 
+### Distribution
+
+The source repository is public, but no redistribution license is granted. Public binary releases, package registries, signing, and installer channels require an explicit distribution decision; source visibility alone does not authorize them.
+
 ### Network behavior
 
 No telemetry, symbol downloads, update checks, remote listeners, or outbound requests by default. Future remote acquisition requires an explicit source profile and security review.
@@ -234,7 +238,7 @@ A capability is complete only when:
 
 ## Open decisions
 
-- External distribution and licensing.
+- Redistribution license and public release/package channels.
 - Numeric resource defaults after representative large-dump benchmarks.
 - At-rest encryption if sessions become a team feature.
 - The exact VMM licensing and packaging model.

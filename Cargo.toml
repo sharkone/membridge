@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
 description = "Deterministic, bounded process-memory inspection for humans and AI agents"
+repository = "https://github.com/sharkone/membridge"
 
 [dependencies]
 aho-corasick = "1.1.3"

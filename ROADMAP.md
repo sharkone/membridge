@@ -9,7 +9,7 @@ This document describes milestone order. GitHub issues contain implementation ta
 | Milestone | State | Outcome | Tracking |
 |---|---|---|---|
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
-| M1: Project and Agent Skill | Complete | Maintained repository, embedded skill, CI, examples, and explicit coverage limitations | [#10](https://github.com/sharkone/membridge/issues/10), [#15](https://github.com/sharkone/membridge/issues/15) |
+| M1: Project and Agent Skill | Complete | Maintained public repository, embedded skill, CI, examples, and explicit coverage limitations | [#10](https://github.com/sharkone/membridge/issues/10), [#15](https://github.com/sharkone/membridge/issues/15), [#18](https://github.com/sharkone/membridge/issues/18) |
 | M2: Windows minidump capture | Active | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
 | M3: Typed deterministic patterns | Planned | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
@@ -44,7 +44,7 @@ Exit evidence:
 
 Delivered:
 
-- private GitHub repository;
+- public GitHub repository;
 - maintained README, plan, roadmap, and AGENTS guidance;
 - Agent Skills-compatible workflow stored in the repository;
 - version-matched `membridge skill install` command;
@@ -61,7 +61,7 @@ Exit evidence:
 - OMP discovers the repository skill;
 - the installed skill matches the version embedded in the binary;
 - OMP-native installation follows the active profile and preserves the embedded binary/skill version match;
-- repository visibility is private;
+- repository visibility is public;
 - branch CI is running;
 - incomplete coverage reports a deterministic reason rather than relying on booleans alone.
 

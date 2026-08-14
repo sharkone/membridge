@@ -164,7 +164,7 @@ Update status immediately when work lands. Do not let README, skill, roadmap, an
 
 ## Git and GitHub
 
-The repository is private. Do not change visibility, publish packages, create public releases, or add a redistribution license without explicit user approval.
+The repository is public and has no redistribution license. Do not change visibility, transfer ownership, publish packages, create releases, or add a redistribution license without explicit user approval.
 
 Keep commits focused and buildable. Pull requests must state:
 
