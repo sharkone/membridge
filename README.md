@@ -126,10 +126,20 @@ Important fields:
 - `data.coverage.metadata_complete`
 - `data.coverage.coverage_complete`
 - `data.coverage.unavailable_readable_bytes`
+- `data.coverage.limitations`
 - `data.regions`
 - `data.modules`
 
 A dump may parse successfully while omitting readable process memory. Membridge exposes that distinction rather than turning missing pages into false negatives.
+
+`limitations` is a deterministically ordered list with at most four stable codes:
+
+- `MEMORY_METADATA_MISSING`: the dump has no memory-information stream;
+- `MEMORY_METADATA_UNUSABLE`: the stream exists but cannot be parsed;
+- `EXPECTED_READABLE_SCOPE_UNPROVEN`: available metadata cannot establish the process's expected readable scope;
+- `KNOWN_READABLE_BYTES_MISSING`: metadata identifies readable bytes absent from the capture; `unavailable_readable_bytes` gives the exact known count.
+
+Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. In that case, zero unavailable bytes does not prove complete coverage.
 
 ## Scan exact representations
 
@@ -167,6 +177,8 @@ Interpret the result using both dimensions:
 - `coverage_complete` says whether the capture contained all expected readable memory.
 
 A complete scan over incomplete coverage proves only “not observed in captured scope.”
+
+Use `coverage.limitations` to explain incomplete coverage. Do not infer the cause from the booleans or byte counts alone.
 
 ## Read bounded context
 

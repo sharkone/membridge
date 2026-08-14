@@ -4,11 +4,16 @@ use std::fs;
 
 use assert_cmd::Command;
 use membridge::scan::{ExactPatternSpec, ScanSpec, scan};
-use membridge::source::{MemorySource, MinidumpSource};
+use membridge::source::{
+    CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemorySource, MinidumpSource,
+};
 use serde_json::Value;
 use tempfile::tempdir;
 
-use common::{BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, NOACCESS_DECOY, write_fixture};
+use common::{
+    BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, MemoryMetadataFixture, NOACCESS_DECOY,
+    write_coverage_fixture, write_fixture,
+};
 
 #[test]
 fn minidump_reports_modules_regions_and_partial_coverage() {
@@ -33,6 +38,51 @@ fn minidump_reports_modules_regions_and_partial_coverage() {
     assert_eq!(coverage.unavailable_readable_bytes, 0x1000);
     assert!(coverage.metadata_complete);
     assert!(!coverage.coverage_complete);
+    assert_eq!(
+        coverage.limitations,
+        [CoverageLimitation::KnownReadableBytesMissing]
+    );
+}
+
+#[test]
+fn coverage_limitations_distinguish_missing_unusable_and_complete_metadata() {
+    let temp = tempdir().unwrap();
+    let cases = [
+        (
+            "missing",
+            MemoryMetadataFixture::Missing,
+            vec![
+                CoverageLimitation::MemoryMetadataMissing,
+                CoverageLimitation::ExpectedReadableScopeUnproven,
+            ],
+            false,
+        ),
+        (
+            "unusable",
+            MemoryMetadataFixture::Unusable,
+            vec![
+                CoverageLimitation::MemoryMetadataUnusable,
+                CoverageLimitation::ExpectedReadableScopeUnproven,
+            ],
+            false,
+        ),
+        ("complete", MemoryMetadataFixture::Complete, vec![], true),
+    ];
+
+    for (name, metadata, expected_limitations, expected_complete) in cases {
+        let dump_path = temp.path().join(format!("{name}.dmp"));
+        write_coverage_fixture(&dump_path, metadata);
+        let source = MinidumpSource::open(&dump_path).unwrap();
+        let process = source.open_process("process:0").unwrap();
+        let coverage = process.coverage();
+
+        assert_eq!(coverage.unavailable_readable_bytes, 0);
+        assert_eq!(coverage.coverage_complete, expected_complete);
+        assert_eq!(coverage.limitations, expected_limitations);
+        assert!(coverage.limitations.len() <= MAX_COVERAGE_LIMITATIONS);
+    }
+
+    assert_eq!(MAX_COVERAGE_LIMITATIONS, 4);
 }
 
 #[test]
@@ -124,6 +174,10 @@ fn cli_emits_one_compact_json_object_per_command() {
     assert_eq!(inspect["ok"], true);
     assert_eq!(inspect["command"], "inspect");
     assert_eq!(inspect["data"]["coverage"]["coverage_complete"], false);
+    assert_eq!(
+        inspect["data"]["coverage"]["limitations"],
+        serde_json::json!(["KNOWN_READABLE_BYTES_MISSING"])
+    );
 
     let scan = Command::cargo_bin("membridge")
         .unwrap()
@@ -144,6 +198,10 @@ fn cli_emits_one_compact_json_object_per_command() {
     assert_eq!(
         scan["data"]["report"]["matches"][0]["address"],
         "0x0000000140000100"
+    );
+    assert_eq!(
+        scan["data"]["report"]["coverage"]["limitations"],
+        inspect["data"]["coverage"]["limitations"]
     );
 
     let read = Command::cargo_bin("membridge")

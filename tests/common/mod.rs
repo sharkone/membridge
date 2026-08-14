@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use minidump_synth::{DumpString, Memory, MemoryInfo, Module, SynthMinidump, SystemInfo};
+use minidump::format::MINIDUMP_STREAM_TYPE;
+use minidump_synth::{
+    DumpString, Memory, MemoryInfo, Module, SimpleStream, SynthMinidump, SystemInfo,
+};
 use test_assembler::{Endian, Section};
 
 pub const BASE: u64 = 0x0000_0001_4000_0000;
@@ -9,8 +12,19 @@ pub const CANARY: &[u8] = b"MBRIDGE!";
 pub const FIRST_MATCH: u64 = BASE + 0x100;
 pub const BOUNDARY_MATCH: u64 = BASE + 0x0ffc;
 pub const NOACCESS_DECOY: u64 = BASE + 0x2100;
+#[derive(Clone, Copy)]
+pub enum MemoryMetadataFixture {
+    Complete,
+    Missing,
+    Partial,
+    Unusable,
+}
 
 pub fn write_fixture(path: &Path) {
+    write_coverage_fixture(path, MemoryMetadataFixture::Partial);
+}
+
+pub fn write_coverage_fixture(path: &Path, metadata: MemoryMetadataFixture) {
     let mut memory_bytes = vec![0_u8; 0x3000];
     memory_bytes[0x100..0x108].copy_from_slice(CANARY);
     memory_bytes[0x0ffc..0x1004].copy_from_slice(CANARY);
@@ -31,39 +45,35 @@ pub fn write_fixture(path: &Path) {
         .add(module_name)
         .add_system_info(system)
         .add_module(module)
-        .add_memory64(memory)
-        .add_memory_info(MemoryInfo::new(
-            endian,
-            BASE,
-            BASE,
-            0x04,
-            0x2000,
-            0x1000,
-            0x04,
-            0x0002_0000,
-        ))
-        .add_memory_info(MemoryInfo::new(
-            endian,
-            BASE + 0x2000,
-            BASE + 0x2000,
-            0x01,
-            0x1000,
-            0x1000,
-            0x01,
-            0x0002_0000,
-        ))
-        .add_memory_info(MemoryInfo::new(
-            endian,
-            BASE + 0x3000,
-            BASE + 0x3000,
-            0x04,
-            0x1000,
-            0x1000,
-            0x04,
-            0x0002_0000,
-        ))
-        .finish()
-        .expect("synthetic minidump labels resolve");
+        .add_memory64(memory);
+    let dump = match metadata {
+        MemoryMetadataFixture::Complete => dump
+            .add_memory_info(memory_info(endian, BASE, 0x2000, 0x04))
+            .add_memory_info(memory_info(endian, BASE + 0x2000, 0x1000, 0x01)),
+        MemoryMetadataFixture::Missing => dump,
+        MemoryMetadataFixture::Partial => dump
+            .add_memory_info(memory_info(endian, BASE, 0x2000, 0x04))
+            .add_memory_info(memory_info(endian, BASE + 0x2000, 0x1000, 0x01))
+            .add_memory_info(memory_info(endian, BASE + 0x3000, 0x1000, 0x04)),
+        MemoryMetadataFixture::Unusable => dump.add_stream(SimpleStream {
+            stream_type: MINIDUMP_STREAM_TYPE::MemoryInfoListStream as u32,
+            section: Section::with_endian(endian).D32(0),
+        }),
+    };
+    let dump = dump.finish().expect("synthetic minidump labels resolve");
 
     fs::write(path, dump).expect("write synthetic minidump");
+}
+
+fn memory_info(endian: Endian, base: u64, size: u64, protection: u32) -> MemoryInfo {
+    MemoryInfo::new(
+        endian,
+        base,
+        base,
+        protection,
+        size,
+        0x1000,
+        protection,
+        0x0002_0000,
+    )
 }

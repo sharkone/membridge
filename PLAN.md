@@ -40,6 +40,7 @@ The first vertical slice is complete:
 - bounded gap-aware reads;
 - compact schema-v1 JSON;
 - synthetic behavioral fixture;
+- stable source-derived coverage limitation codes;
 - embedded portable Agent Skill.
 
 Current commands:
@@ -189,8 +190,14 @@ Virtual addresses are serialized as fixed-width hexadecimal strings. They must n
 
 ### Coverage
 
-Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion.
-When completeness is unproven, stable limitation codes identify the missing or unusable metadata that prevents a stronger claim.
+Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion. Coverage reports preserve exact known byte counts and a deterministic list of at most four stable limitation codes:
+
+- `MEMORY_METADATA_MISSING`;
+- `MEMORY_METADATA_UNUSABLE`;
+- `EXPECTED_READABLE_SCOPE_UNPROVEN`;
+- `KNOWN_READABLE_BYTES_MISSING`.
+
+The parser emits these codes only from observed source conditions. Missing or unusable metadata means the expected readable scope is unproven; zero known unavailable bytes must not be presented as complete coverage.
 
 ### Resource limits
 
