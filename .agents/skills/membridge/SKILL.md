@@ -24,6 +24,22 @@ Only inspect processes and dumps the user is authorized to analyze.
 
 ## Installation
 
+Install the `v0.1.0-alpha.1` binary on macOS or Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.sh |
+  sh
+```
+
+On Windows PowerShell:
+
+```powershell
+irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.1/membridge-installer.ps1 | iex
+```
+
+Alpha binaries are checksummed but unsigned and not notarized.
+
 The skill embedded in a Membridge binary is version-matched to that binary. Install it into the active OMP-native user profile with:
 
 ```sh

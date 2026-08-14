@@ -1,9 +1,10 @@
 [package]
 name = "membridge"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.87"
 description = "Deterministic, bounded process-memory inspection for humans and AI agents"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/sharkone/membridge"
 
 [dependencies]
@@ -22,3 +23,8 @@ assert_cmd = "2.0.17"
 minidump-synth = "0.27.0"
 tempfile = "3.23.0"
 test-assembler = "0.1.5"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
