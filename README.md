@@ -116,7 +116,7 @@ membridge read <dump> --address <address> [--length <1..65536>]
 membridge skill install (--omp | --target <skills-root>) [--force]
 ```
 
-All commands emit one JSON object. Success responses have:
+Command execution emits one compact JSON object. Standard metadata flags such as `--help` and `--version` print text and exit successfully. Success responses have:
 
 ```json
 {
