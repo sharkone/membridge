@@ -188,7 +188,9 @@ Update status immediately when work lands. Do not let README, skill, roadmap, an
 
 ## Git and GitHub
 
-The repository is public and dual-licensed under MIT OR Apache-2.0. Do not change visibility, transfer ownership, publish packages, create releases, or change licensing without explicit user approval.
+The repository is public and dual-licensed under MIT OR Apache-2.0. Do not change visibility, transfer ownership, publish to package registries, or change licensing without explicit user approval.
+
+Cutting a GitHub release of an already-versioned change is ordinary maintenance and needs no separate approval, but it must follow the full release procedure: finalize the `CHANGELOG.md` section for that version, tag `v<version>`, let the `dist` release workflow publish the checksummed archives and installers, verify a published artifact end to end, then re-pin the embedded bootstrap scripts and README installer URLs to that release in a follow-up commit.
 
 Keep commits focused and buildable. Pull requests must state:
 

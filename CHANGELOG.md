@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-08-15
+
 ### Added
 
 - Typed scan patterns. A scan specification is now `schema: 2` and each pattern carries one explicit `value` object: `bytes`, `int` (8/16/32/64-bit, signed or unsigned, little- or big-endian), `float` (exact `f32`/`f64` bit patterns), `utf8`, `utf16le`, or `masked` (byte- and nibble-granular masks). Numbers are strings, so 64-bit values never pass through lossy JSON floats; out-of-range values, `NaN`, malformed masks, and masks without a fully known byte are rejected explicitly. Mixed-kind batches still make one pass over each captured span.
@@ -15,6 +17,17 @@
 - Scan specifications with `schema: 1` are rejected with a migration message; the untyped `bytes_hex` pattern shape is gone.
 - Every scan-specification failure, including malformed JSON and unknown pattern kinds or fields, now reports the single stable `INVALID_SCAN_SPEC` code.
 - The synthetic fixture plants little- and big-endian integers, `f32`/`f64` values, and a UTF-16LE canary, and `./examples/demo.sh` exercises both shipped specifications.
+
+### Alpha limitations
+
+- Binaries are unsigned and not notarized.
+- Live capture is Windows-only and requires same-user, unprotected-process access: no elevation, no `SeDebugPrivilege` use, and no cross-platform or protected-process capture.
+- No stack unwinding, exception/register crash seed, symbols, disassembly, structure inference, or crash-cause inference.
+- No pointer scans, YARA rules, or cross-capture refinement; masked patterns require at least one fully known byte.
+- Scan scopes are explicit only; Membridge never selects a scope, and `protections`/`types` need region metadata.
+- Installed skills do not update automatically; rerun `membridge skill install --force` after updating the binary.
+
+Only inspect processes and dumps you are authorized to analyze. An incomplete capture cannot prove that a value was absent from process memory.
 
 ## [0.1.0-alpha.2] - 2026-08-14
 
@@ -73,3 +86,4 @@ Only inspect processes and dumps you are authorized to analyze. An incomplete ca
 
 [0.1.0-alpha.1]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.1
 [0.1.0-alpha.2]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.2
+[0.1.0-alpha.3]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.3
