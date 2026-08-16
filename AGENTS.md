@@ -143,8 +143,7 @@ Requirements:
 - bootstrap scripts pin the latest *published* release version, checksum, and download URL, not necessarily `CARGO_PKG_VERSION`; a version bump may briefly precede the matching release, and bootstrap scripts must never reference a version with no published, checksummed archive; and they must authenticate every executable download before execution;
 - OMP discovery must be verified when skill layout changes;
 - the marketplace plugin source remains `./.agents`, never a copied skill tree;
-- catalog and plugin versions must match each other and use `<binary-version>.skill.<revision>`;
-- increment the skill revision for marketplace-visible skill changes without a binary version bump; reset it to `1` when the binary version changes;
+- catalog and plugin versions must match each other and the binary version; the skill ships with one binary and is checked against it at runtime, so it carries no version of its own;
 - local OMP marketplace install, discovery, and upgrade must be exercised when marketplace metadata changes.
 
 Never maintain a second hand-copied skill tree.

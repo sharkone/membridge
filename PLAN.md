@@ -266,7 +266,7 @@ The Agent Skills specification standardizes skill contents, not a universal mark
 
 The repository additionally carries a Claude Code-compatible marketplace adapter that OMP loads through its compatibility fallback. Its `membridge` plugin source is the canonical `.agents` directory, which already has the standard plugin-relative `skills/membridge` layout. The adapter is optional and does not make the tool or skill client-specific.
 
-Marketplace catalog and plugin versions use `<binary-version>.skill.<revision>`. The skill revision increments for marketplace-visible package changes that do not require a new native binary, while the binary prefix and skill runtime check preserve exact compatibility.
+Marketplace catalog and plugin versions are the binary version. The skill ships with one binary and verifies it at runtime, so a separate package version would be a second, weaker claim about the same compatibility.
 
 Marketplace adapters own skill discovery and updates only. The canonical skill package includes explicit checksum-pinned shell and PowerShell bootstrap scripts for first binary installation, but adapters never execute them. An agent may offer the host script only when the version-matched executable is absent, must explain the executable download, and must obtain user approval before running it.
 

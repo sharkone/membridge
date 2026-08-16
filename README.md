@@ -400,7 +400,7 @@ Claude Code:
 /plugin install membridge@membridge
 ```
 
-Marketplace package versions use `<binary-version>.skill.<revision>`, so skill-only releases can ship independently while staying pinned to a specific compatible Membridge binary version; the skill still checks that binary before use.
+The marketplace package carries the version of the binary it ships the skill for, and the skill checks that binary before use.
 
 The marketplace adapter installs and updates the skill package, including its opt-in bootstrap scripts under `scripts/`, but never executes them — plugin installation has no portable lifecycle-hook contract. Running a bootstrap script remains a separate, explicit, user-approved action (see below).
 
