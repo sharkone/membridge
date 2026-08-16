@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 use membridge::capture;
 use membridge::protocol::{Failure, Success};
 use membridge::scan::{ScanReport, ScanSpec, scan};
 use membridge::skill;
 use membridge::source::{
-    Address, Coverage, MemoryRegion, MemorySource, MinidumpSource, ModuleInfo, ProcessInfo,
-    SourceInfo,
+    Address, Coverage, LiveSource, MemoryRegion, MemorySource, MinidumpSource, ModuleInfo,
+    ProcessInfo, SourceInfo,
 };
 use membridge::{Error, Result};
 use serde::Serialize;
@@ -25,20 +25,50 @@ struct Cli {
     command: Command,
 }
 
+/// The memory source a command operates on: either an immutable captured file or a
+/// live process. Exactly one is required, so a command can never silently default to
+/// the wrong kind of source.
+#[derive(Debug, Args)]
+#[command(group(ArgGroup::new("target").required(true).args(["dump", "pid"])))]
+struct TargetArgs {
+    /// Windows x64 minidump to analyse.
+    dump: Option<PathBuf>,
+    /// Process id of a running process to inspect read-only.
+    #[arg(long)]
+    pid: Option<u32>,
+}
+
+impl TargetArgs {
+    fn open(self) -> Result<Box<dyn MemorySource>> {
+        match (self.dump, self.pid) {
+            (Some(dump), None) => Ok(Box::new(MinidumpSource::open(dump)?)),
+            (None, Some(pid)) => Ok(Box::new(LiveSource::open(pid)?)),
+            _ => Err(Error::InvalidArgument(
+                "exactly one of a minidump path or --pid is required".into(),
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Describe a Windows x64 process minidump and its scan coverage.
-    Inspect { dump: PathBuf },
-    /// Scan readable committed captured memory for a tagged batch of exact bytes.
+    /// Describe a memory source and its scan coverage.
+    Inspect {
+        #[command(flatten)]
+        target: TargetArgs,
+    },
+    /// Scan readable memory for a tagged batch of typed patterns.
     Scan {
-        dump: PathBuf,
+        #[command(flatten)]
+        target: TargetArgs,
         /// JSON scan specification path, or - for stdin.
         #[arg(long)]
         spec: String,
     },
-    /// Return bounded captured bytes at one virtual address.
+    /// Return bounded readable bytes at one virtual address.
     Read {
-        dump: PathBuf,
+        #[command(flatten)]
+        target: TargetArgs,
         #[arg(long, value_parser = parse_address)]
         address: u64,
         #[arg(long, default_value_t = 256)]
@@ -155,25 +185,25 @@ fn main() -> ExitCode {
 
 fn run(command: Command) -> Result<serde_json::Value> {
     match command {
-        Command::Inspect { dump } => {
-            let source = MinidumpSource::open(dump)?;
+        Command::Inspect { target } => {
+            let source = target.open()?;
             let process_info = source.processes()[0].clone();
             let process = source.open_process(&process_info.id)?;
             let data = InspectData {
                 source: source.info().clone(),
                 process: process.process().clone(),
-                coverage: process.coverage().clone(),
+                coverage: process.coverage(),
                 regions: process.regions().to_vec(),
                 modules: process.modules().to_vec(),
             };
             serde_json::to_value(Success::new("inspect", data)).map_err(Error::from)
         }
-        Command::Scan { dump, spec } => {
+        Command::Scan { target, spec } => {
             // Every specification problem - malformed JSON, unknown pattern kind,
             // missing field - reports the same stable INVALID_SCAN_SPEC code.
             let spec: ScanSpec = serde_json::from_str(&read_spec(&spec)?)
                 .map_err(|error| Error::InvalidSpec(error.to_string()))?;
-            let source = MinidumpSource::open(dump)?;
+            let source = target.open()?;
             let process = source.open_process(&source.processes()[0].id)?;
             let report = scan(process.as_ref(), &spec)?;
             let data = ScanData {
@@ -183,7 +213,7 @@ fn run(command: Command) -> Result<serde_json::Value> {
             serde_json::to_value(Success::new("scan", data)).map_err(Error::from)
         }
         Command::Read {
-            dump,
+            target,
             address,
             length,
         } => {
@@ -192,7 +222,7 @@ fn run(command: Command) -> Result<serde_json::Value> {
                     "length must be between 1 and {MAX_READ_BYTES}"
                 )));
             }
-            let source = MinidumpSource::open(dump)?;
+            let source = target.open()?;
             let process = source.open_process(&source.processes()[0].id)?;
             let segments = process.read(address, length)?;
             let returned_bytes = segments.iter().map(|segment| segment.bytes.len()).sum();

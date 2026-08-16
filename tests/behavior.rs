@@ -17,10 +17,11 @@ const USER_HOME_ENV: &str = "USERPROFILE";
 const USER_HOME_ENV: &str = "HOME";
 
 use common::{
-    BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, MemoryMetadataFixture, NOACCESS_DECOY, TYPED_F32,
-    TYPED_F32_MATCH, TYPED_F64, TYPED_F64_MATCH, TYPED_I64, TYPED_I64_MATCH, TYPED_U16_BE,
-    TYPED_U16_BE_MATCH, TYPED_U32, TYPED_U32_MATCH, UTF16_MATCH, write_ambiguous_module_fixture,
-    write_coverage_fixture, write_fixture, write_oversized_capture_fixture,
+    BASE, BOUNDARY_MATCH, CANARY, FIRST_MATCH, MemoryMetadataFixture, NOACCESS_DECOY,
+    SyntheticTarget, TYPED_F32, TYPED_F32_MATCH, TYPED_F64, TYPED_F64_MATCH, TYPED_I64,
+    TYPED_I64_MATCH, TYPED_U16_BE, TYPED_U16_BE_MATCH, TYPED_U32, TYPED_U32_MATCH, UTF16_MATCH,
+    write_ambiguous_module_fixture, write_coverage_fixture, write_fixture,
+    write_oversized_capture_fixture,
 };
 
 #[test]
@@ -39,9 +40,12 @@ fn minidump_reports_modules_regions_and_partial_coverage() {
     assert_eq!(process.modules().len(), 1);
     assert!(process.modules()[0].name.ends_with("fixture.exe"));
     assert_eq!(process.modules()[0].base.0, BASE);
-    assert_eq!(process.regions()[0].protection, "page_readwrite");
-    assert_eq!(process.regions()[1].protection, "page_noaccess");
+    assert_eq!(process.regions()[0].protection, "read | write");
+    assert_eq!(process.regions()[0].native_protection, "page_readwrite");
+    assert_eq!(process.regions()[1].protection, "none");
+    assert_eq!(process.regions()[1].native_protection, "page_noaccess");
     assert_eq!(process.regions()[0].kind, "private");
+    assert_eq!(process.regions()[0].captured_bytes, Some(0x2000));
 
     let coverage = process.coverage();
     assert_eq!(coverage.expected_readable_bytes, 0x3000);
@@ -104,7 +108,7 @@ fn coverage_limitations_distinguish_missing_unusable_and_complete_metadata() {
         assert!(coverage.limitations.len() <= MAX_COVERAGE_LIMITATIONS);
     }
 
-    assert_eq!(MAX_COVERAGE_LIMITATIONS, 4);
+    assert_eq!(MAX_COVERAGE_LIMITATIONS, 6);
 }
 
 #[test]
@@ -429,21 +433,22 @@ fn scope_selectors_intersect_deterministically() {
     assert_eq!(intersection.scope.selected_bytes, Some(0x200));
     assert_eq!(addresses(&intersection), vec![FIRST_MATCH]);
 
-    // Metadata-backed classes select whole regions.
-    let readwrite = scan(
+    // Metadata-backed classes select whole regions. Selectors name portable access
+    // rights, so one selector spans every native protection carrying that right.
+    let writable = scan(
         process.as_ref(),
-        &canary_spec(100, Some(json!({"protections": ["page_readwrite"]}))),
+        &canary_spec(100, Some(json!({"protections": ["write"]}))),
     )
     .unwrap();
-    assert_eq!(readwrite.scope.selected_bytes, Some(0x3000));
-    assert_eq!(addresses(&readwrite), vec![FIRST_MATCH, BOUNDARY_MATCH]);
-    let readonly = scan(
+    assert_eq!(writable.scope.selected_bytes, Some(0x3000));
+    assert_eq!(addresses(&writable), vec![FIRST_MATCH, BOUNDARY_MATCH]);
+    let executable = scan(
         process.as_ref(),
-        &canary_spec(100, Some(json!({"protections": ["page_readonly"]}))),
+        &canary_spec(100, Some(json!({"protections": ["execute"]}))),
     )
     .unwrap();
-    assert_eq!(readonly.scope.selected_bytes, Some(0));
-    assert!(addresses(&readonly).is_empty());
+    assert_eq!(executable.scope.selected_bytes, Some(0));
+    assert!(addresses(&executable).is_empty());
     let private = scan(
         process.as_ref(),
         &canary_spec(100, Some(json!({"types": ["private"]}))),
@@ -608,7 +613,7 @@ fn cli_emits_one_compact_json_object_per_command() {
         .stdout
         .clone();
     let inspect: Value = serde_json::from_slice(&inspect).unwrap();
-    assert_eq!(inspect["schema"], 3);
+    assert_eq!(inspect["schema"], 4);
     assert_eq!(inspect["ok"], true);
     assert_eq!(inspect["command"], "inspect");
     assert_eq!(inspect["data"]["coverage"]["coverage_complete"], false);
@@ -639,6 +644,10 @@ fn cli_emits_one_compact_json_object_per_command() {
     );
     assert_eq!(
         scan["data"]["report"]["matches"][0]["region"]["protection"],
+        "read | write"
+    );
+    assert_eq!(
+        scan["data"]["report"]["matches"][0]["region"]["native_protection"],
         "page_readwrite"
     );
     assert_eq!(
@@ -709,7 +718,7 @@ fn cli_reports_every_specification_problem_as_one_stable_code() {
             .stdout
             .clone();
         let failure: Value = serde_json::from_slice(&failure).unwrap();
-        assert_eq!(failure["schema"], 3);
+        assert_eq!(failure["schema"], 4);
         assert_eq!(failure["command"], "scan");
         let code = failure["error"]["code"].as_str().unwrap();
         assert!(
@@ -755,6 +764,7 @@ fn cli_installs_the_version_matched_agent_skill() {
             "SKILL.md",
             "examples/canary-batch.json",
             "examples/scoped-batch.json",
+            "examples/live-batch.json",
             "scripts/install.sh",
             "scripts/install.ps1"
         ])
@@ -776,6 +786,12 @@ fn cli_installs_the_version_matched_agent_skill() {
     assert_eq!(
         installed_scoped,
         include_str!("../.agents/skills/membridge/examples/scoped-batch.json")
+    );
+    let installed_live =
+        fs::read_to_string(destination.join("examples").join("live-batch.json")).unwrap();
+    assert_eq!(
+        installed_live,
+        include_str!("../.agents/skills/membridge/examples/live-batch.json")
     );
     let installed_shell =
         fs::read_to_string(destination.join("scripts").join("install.sh")).unwrap();
@@ -1109,51 +1125,11 @@ fn capture_minidump_reports_unsupported_host_off_windows() {
 #[cfg(windows)]
 #[test]
 fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
-    use std::io::{BufRead, BufReader};
-
-    // `synthetic-capture-target` lives in a separate workspace package
-    // (test-support/synthetic-capture-target) so `dist` never ships it as a
-    // release artifact; a plain `[[bin]]` in this package would still be
-    // enumerated and required by dist's build step. Build it explicitly so
-    // this test is self-sufficient regardless of how `cargo test` was
-    // invoked, then locate it next to this test binary's own sibling
-    // artifacts in the shared workspace target dir.
-    let manifest_path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
-    let build = std::process::Command::new(env!("CARGO"))
-        .args(["build", "--quiet", "--manifest-path", manifest_path])
-        .args(["--package", "synthetic-capture-target"])
-        .status()
-        .unwrap();
-    assert!(build.success(), "failed to build synthetic-capture-target");
-    let target_exe = std::path::Path::new(env!("CARGO_BIN_EXE_membridge"))
-        .parent()
-        .unwrap()
-        .join(format!(
-            "synthetic-capture-target{}",
-            std::env::consts::EXE_SUFFIX
-        ));
-
     let temp = tempdir().unwrap();
     let output_path = temp.path().join("capture.dmp");
 
-    let mut target = std::process::Command::new(&target_exe)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let mut reader = BufReader::new(target.stdout.take().unwrap());
-    let mut ready_line = String::new();
-    reader.read_line(&mut ready_line).unwrap();
-    assert!(
-        ready_line.starts_with("READY"),
-        "unexpected target output: {ready_line}"
-    );
-    let readable_address = ready_line
-        .split_whitespace()
-        .find_map(|field| field.strip_prefix("readable=0x"))
-        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
-        .expect("READY line carries a readable= address");
+    let target = SyntheticTarget::start();
+    let readable_address = target.readable;
 
     let before_unix_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1163,7 +1139,7 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
     let captured = Command::cargo_bin("membridge")
         .unwrap()
         .args(["capture", "minidump", "--pid"])
-        .arg(target.id().to_string())
+        .arg(target.pid.to_string())
         .arg("--output")
         .arg(&output_path)
         .assert()
@@ -1173,15 +1149,18 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
         .clone();
     let captured: Value = serde_json::from_slice(&captured).unwrap();
     assert_eq!(captured["command"], "capture.minidump");
-    assert_eq!(captured["schema"], 3);
+    assert_eq!(captured["schema"], 4);
     let data = &captured["data"];
-    assert_eq!(data["process"]["pid"].as_u64().unwrap(), target.id() as u64);
+    assert_eq!(
+        data["process"]["pid"].as_u64().unwrap(),
+        u64::from(target.pid)
+    );
     assert!(
         data["process"]["image_path"]
             .as_str()
             .unwrap()
             .to_ascii_lowercase()
-            .contains("synthetic-capture-target")
+            .contains("synthetic-target")
     );
     assert!(data["process"]["creation_time_unix_ms"].as_u64().unwrap() <= before_unix_ms);
     let started = data["interval"]["started_at_unix_ms"].as_u64().unwrap();
@@ -1207,7 +1186,7 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
     let conflict = Command::cargo_bin("membridge")
         .unwrap()
         .args(["capture", "minidump", "--pid"])
-        .arg(target.id().to_string())
+        .arg(target.pid.to_string())
         .arg("--output")
         .arg(&output_path)
         .assert()
@@ -1221,15 +1200,14 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
     Command::cargo_bin("membridge")
         .unwrap()
         .args(["capture", "minidump", "--pid"])
-        .arg(target.id().to_string())
+        .arg(target.pid.to_string())
         .arg("--output")
         .arg(&output_path)
         .arg("--force")
         .assert()
         .success();
 
-    drop(target.stdin.take());
-    let _ = target.wait();
+    drop(target);
 
     let source = MinidumpSource::open(&output_path).unwrap();
     assert_eq!(source.info().platform, "windows");
@@ -1256,6 +1234,304 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
             .iter()
             .any(|found| found.address.0 == readable_address)
     );
+}
+
+/// The contract that makes chunked live scanning trustworthy: a pattern straddling a
+/// chunk boundary is found, and the repeated overlap bytes never report it twice.
+#[test]
+fn chunked_spans_find_boundary_patterns_exactly_once() {
+    const BASE: u64 = 0x0000_0002_0000_0000;
+    const CHUNK: usize = 4096;
+
+    let mut bytes = vec![0_u8; CHUNK * 3];
+    // Straddles the first chunk boundary: 4 bytes before it, 4 after.
+    bytes[CHUNK - 4..CHUNK + 4].copy_from_slice(b"STRADDLE");
+    // Sits wholly inside the bytes the second chunk repeats as its carry, so a naive
+    // implementation that rescans the overlap would report it twice.
+    bytes[CHUNK - 16..CHUNK - 8].copy_from_slice(b"INCARRY!");
+    // Sits wholly inside the second chunk, clear of every overlap.
+    bytes[CHUNK + 64..CHUNK + 72].copy_from_slice(b"INTERIOR");
+
+    let process = common::ChunkedSource::new(BASE, bytes, CHUNK);
+    let report = scan(
+        &process,
+        &spec(json!({
+            "schema": 2,
+            "patterns": [
+                {"tag": "straddle", "value": {"kind": "utf8", "text": "STRADDLE"}},
+                {"tag": "carry", "value": {"kind": "utf8", "text": "INCARRY!"}},
+                {"tag": "interior", "value": {"kind": "utf8", "text": "INTERIOR"}}
+            ],
+            "max_matches": 100
+        })),
+    )
+    .unwrap();
+
+    assert_eq!(
+        report
+            .matches
+            .iter()
+            .map(|found| (found.address.0 - BASE, found.tags[0].clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (CHUNK as u64 - 16, "carry".to_owned()),
+            (CHUNK as u64 - 4, "straddle".to_owned()),
+            (CHUNK as u64 + 64, "interior".to_owned()),
+        ]
+    );
+    // Overlap bytes are delivered twice but counted once.
+    assert_eq!(report.scope.scanned_bytes, (CHUNK * 3) as u64);
+}
+
+/// Live inspection is available on every supported host, so this contract is proven
+/// natively rather than by cross-compilation.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+#[test]
+fn live_source_describes_a_running_process_without_proving_any_byte() {
+    let target = SyntheticTarget::start();
+
+    let inspect = membridge_json(&["inspect", "--pid", &target.pid.to_string()]);
+    let data = &inspect["data"];
+    assert_eq!(inspect["command"], "inspect");
+    assert_eq!(data["source"]["kind"], "live");
+    // A running process is not a frozen artifact, and the contract says so.
+    assert_eq!(data["source"]["immutable"], false);
+    assert_eq!(data["source"]["platform"], std::env::consts::OS);
+    assert_eq!(data["source"]["fingerprint"].as_str().unwrap().len(), 64);
+    assert_eq!(data["process"]["id"], format!("pid:{}", target.pid));
+
+    let readable = region_at(data, target.readable);
+    assert_eq!(readable["readable"], true);
+    assert_eq!(readable["state"], "committed");
+    assert_eq!(readable["protection"], "read | write");
+    // Nothing is captured ahead of time by a live source.
+    assert_eq!(readable["captured_bytes"], Value::Null);
+
+    let inaccessible = region_at(data, target.noaccess);
+    assert_eq!(inaccessible["readable"], false);
+    assert_eq!(inaccessible["protection"], "none");
+
+    let coverage = &data["coverage"];
+    assert_eq!(coverage["metadata_complete"], true);
+    assert_eq!(coverage["captured_readable_bytes"], 0);
+    assert_eq!(coverage["coverage_complete"], false);
+    assert_eq!(
+        coverage["limitations"],
+        json!(["READS_NOT_ATTEMPTED", "EXPECTED_READABLE_SCOPE_UNPROVEN"])
+    );
+    let observation = &coverage["observation"];
+    assert!(
+        observation["completed_at_unix_ms"].as_u64().unwrap()
+            >= observation["started_at_unix_ms"].as_u64().unwrap()
+    );
+
+    assert!(
+        data["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|module| module["name"]
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains("synthetic-target")),
+        "the target's own image is missing from the module list"
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+#[test]
+fn live_scan_finds_planted_canaries_and_never_enters_inaccessible_memory() {
+    let target = SyntheticTarget::start();
+    let block = 64 * 1024_u64;
+
+    let readable_scope = json!({
+        "ranges": [{"start": format!("0x{:x}", target.readable), "length": format!("0x{block:x}")}]
+    });
+    let report = live_scan(&target, canary_patterns(), Some(readable_scope));
+    assert_eq!(report["scan_complete"], true);
+    assert_eq!(report["scope"]["selected_bytes"].as_u64().unwrap(), block);
+    assert_eq!(report["scope"]["scanned_bytes"].as_u64().unwrap(), block);
+
+    let found: Vec<(u64, String)> = report["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|found| {
+            (
+                u64::from_str_radix(
+                    found["address"].as_str().unwrap().trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap(),
+                found["tags"][0].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (target.readable, "readable".to_owned()),
+            (target.noaccess - 20, "edge".to_owned()),
+        ],
+        "both canaries must be found at their exact planted addresses"
+    );
+
+    // Selecting the inaccessible block resolves - the region exists - but not one byte
+    // of it is scanned, and the absence of a match there is never claimed as proof.
+    let inaccessible_scope = json!({
+        "ranges": [{"start": format!("0x{:x}", target.noaccess), "length": format!("0x{block:x}")}]
+    });
+    let refused = live_scan(&target, canary_patterns(), Some(inaccessible_scope));
+    assert_eq!(refused["scope"]["selected_bytes"].as_u64().unwrap(), block);
+    assert_eq!(refused["scope"]["scanned_bytes"].as_u64().unwrap(), 0);
+    assert_eq!(refused["matches"], json!([]));
+    assert!(
+        refused["coverage"]["unavailable_readable_bytes"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+#[test]
+fn live_read_stops_at_the_first_inaccessible_page() {
+    let target = SyntheticTarget::start();
+
+    let straddling = membridge_json(&[
+        "read",
+        "--pid",
+        &target.pid.to_string(),
+        "--address",
+        &format!("0x{:x}", target.noaccess - 32),
+        "--length",
+        "64",
+    ]);
+    let data = &straddling["data"];
+    assert_eq!(data["requested_bytes"], 64);
+    assert_eq!(data["returned_bytes"], 32);
+    assert_eq!(data["complete"], false);
+    assert_eq!(data["segments"].as_array().unwrap().len(), 1);
+
+    let refused = membridge_json(&[
+        "read",
+        "--pid",
+        &target.pid.to_string(),
+        "--address",
+        &format!("0x{:x}", target.noaccess),
+        "--length",
+        "64",
+    ]);
+    assert_eq!(refused["data"]["returned_bytes"], 0);
+    assert_eq!(refused["data"]["complete"], false);
+    assert_eq!(refused["data"]["segments"], json!([]));
+}
+
+#[test]
+fn live_target_selection_requires_exactly_one_source() {
+    let temp = tempdir().unwrap();
+    let dump_path = temp.path().join("fixture.dmp");
+    write_fixture(&dump_path);
+
+    for arguments in [
+        vec!["inspect".to_owned()],
+        vec![
+            "inspect".to_owned(),
+            dump_path.to_string_lossy().into_owned(),
+            "--pid".to_owned(),
+            "1".to_owned(),
+        ],
+    ] {
+        let failure = Command::cargo_bin("membridge")
+            .unwrap()
+            .args(&arguments)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+        let failure: Value = serde_json::from_slice(&failure).unwrap();
+        assert_eq!(failure["error"]["code"], "INVALID_ARGUMENT");
+    }
+}
+
+#[test]
+fn live_source_rejects_an_unknown_process() {
+    // PID 0 is never an inspectable user process on any supported host.
+    let failure = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(["inspect", "--pid", "0"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let failure: Value = serde_json::from_slice(&failure).unwrap();
+    assert!(
+        ["PROCESS_NOT_FOUND", "PROCESS_ACCESS_DENIED"]
+            .contains(&failure["error"]["code"].as_str().unwrap()),
+        "unexpected error: {failure}"
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+fn canary_patterns() -> Value {
+    json!([
+        {"tag": "readable", "value": {"kind": "utf8", "text": "MBRIDGE-CAPTURE-READABLE!!"}},
+        {"tag": "edge", "value": {"kind": "utf8", "text": "MBRIDGE-EDGE-CANARY!"}}
+    ])
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+fn live_scan(target: &SyntheticTarget, patterns: Value, scope: Option<Value>) -> Value {
+    let temp = tempdir().unwrap();
+    let spec_path = temp.path().join("scan.json");
+    let mut value = json!({"schema": 2, "patterns": patterns, "max_matches": 100});
+    if let Some(scope) = scope {
+        value["scope"] = scope;
+    }
+    fs::write(&spec_path, value.to_string()).unwrap();
+
+    let output = membridge_json(&[
+        "scan",
+        "--pid",
+        &target.pid.to_string(),
+        "--spec",
+        &spec_path.to_string_lossy(),
+    ]);
+    output["data"]["report"].clone()
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+fn region_at(data: &Value, address: u64) -> Value {
+    data["regions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|region| {
+            let base = u64::from_str_radix(
+                region["base"].as_str().unwrap().trim_start_matches("0x"),
+                16,
+            )
+            .unwrap();
+            let size = region["size"].as_u64().unwrap();
+            (base..base + size).contains(&address)
+        })
+        .unwrap_or_else(|| panic!("no region covers 0x{address:x}"))
+        .clone()
+}
+
+fn membridge_json(arguments: &[&str]) -> Value {
+    let output = Command::cargo_bin("membridge")
+        .unwrap()
+        .args(arguments)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&output).expect("one compact JSON object on stdout")
 }
 
 fn spec(value: Value) -> ScanSpec {

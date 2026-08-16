@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use memmap2::Mmap;
-use minidump::format::{MemoryProtection, MemoryState, MemoryType};
+use minidump::format::{MemoryState, MemoryType};
 use minidump::system_info::{Cpu, Os};
 use minidump::{
     Error as MinidumpError, Minidump, MinidumpMemoryInfoList, MinidumpModuleList,
@@ -12,8 +12,9 @@ use minidump::{
 };
 
 use super::{
-    Address, Coverage, CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemoryRegion, MemorySource,
-    ModuleInfo, PROTECTION_NAMES, ProcessInfo, ProcessMemory, ReadSegment, SourceInfo,
+    Address, AddressRange, Coverage, CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemoryRegion,
+    MemorySource, ModuleInfo, ProcessInfo, ProcessMemory, ReadSegment, ScanChunk, SourceInfo,
+    UNKNOWN_NAME, windows_protection,
 };
 use crate::{Error, Result};
 
@@ -143,7 +144,7 @@ impl MinidumpSource {
                         name: module.code_file().into_owned(),
                         base: Address(module.base_address()),
                         size: module.size(),
-                        timestamp: module.raw.time_date_stamp,
+                        identity: Some(format!("{:08x}", module.raw.time_date_stamp)),
                     })
                     .collect::<Vec<_>>()
             })
@@ -171,17 +172,18 @@ impl MinidumpSource {
                     let base = item.raw.base_address;
                     let size = item.raw.region_size;
                     let committed = item.state.contains(MemoryState::MEM_COMMIT);
-                    let readable = committed && is_readable(item.protection);
+                    let (access, native_protection) = windows_protection(item.protection.bits());
                     MemoryRegion {
                         id,
                         base: Address(base),
                         size,
-                        captured_bytes: captured_overlap(base, size, &captured),
+                        captured_bytes: Some(captured_overlap(base, size, &captured)),
                         state: state_name(item.state).into(),
-                        protection: protection_name(item.protection),
+                        protection: access.render(),
+                        native_protection,
                         kind: kind_name(item.ty).into(),
                         committed,
-                        readable,
+                        readable: committed && access.read,
                     }
                 })
                 .collect()
@@ -193,10 +195,11 @@ impl MinidumpSource {
                     id,
                     base: Address(segment.address),
                     size: segment.length,
-                    captured_bytes: segment.length,
-                    state: "unknown".into(),
-                    protection: "unknown".into(),
-                    kind: "unknown".into(),
+                    captured_bytes: Some(segment.length),
+                    state: UNKNOWN_NAME.into(),
+                    protection: UNKNOWN_NAME.into(),
+                    native_protection: UNKNOWN_NAME.into(),
+                    kind: UNKNOWN_NAME.into(),
                     committed: true,
                     readable: true,
                 })
@@ -218,7 +221,7 @@ impl MinidumpSource {
             .iter()
             .filter(|region| region.committed && region.readable)
             .try_fold(0_u64, |total, region| {
-                total.checked_add(region.captured_bytes)
+                total.checked_add(region.captured_bytes.unwrap_or(0))
             })
             .ok_or_else(|| Error::SourceInvariant("captured byte count overflow".into()))?;
         let unavailable_readable_bytes = expected_readable_bytes
@@ -242,6 +245,9 @@ impl MinidumpSource {
             unavailable_readable_bytes,
             metadata_complete,
             coverage_complete: metadata_complete && unavailable_readable_bytes == 0,
+            // A mapped dump is frozen: its bytes are the same before and after the
+            // command, so no observation window applies.
+            observation: None,
             limitations,
         };
 
@@ -312,20 +318,29 @@ impl ProcessMemory for MinidumpProcess {
         &self.modules
     }
 
-    fn coverage(&self) -> &Coverage {
-        &self.coverage
+    fn coverage(&self) -> Coverage {
+        self.coverage.clone()
     }
 
+    /// A mapped dump owns every readable byte at once: delivering an extent costs
+    /// nothing, so the resolved scope is left entirely to the scanner and no overlap
+    /// carry is ever needed.
     fn for_each_scannable_span(
         &self,
-        visitor: &mut dyn FnMut(u64, &[u8]) -> Result<()>,
+        _selection: Option<&[AddressRange]>,
+        _overlap: usize,
+        visitor: &mut dyn FnMut(ScanChunk<'_>) -> Result<()>,
     ) -> Result<()> {
         for extent in &self.scannable {
             let end = extent
                 .file_offset
                 .checked_add(extent.length)
                 .ok_or_else(|| Error::SourceInvariant("scan extent overflow".into()))?;
-            visitor(extent.address, &self.data[extent.file_offset..end])?;
+            visitor(ScanChunk {
+                base: extent.address,
+                bytes: &self.data[extent.file_offset..end],
+                carry: 0,
+            })?;
         }
         Ok(())
     }
@@ -450,22 +465,6 @@ fn build_scan_extents(
     Ok(merged)
 }
 
-fn is_readable(protection: MemoryProtection) -> bool {
-    if protection.contains(MemoryProtection::PAGE_GUARD)
-        || protection.contains(MemoryProtection::PAGE_NOACCESS)
-    {
-        return false;
-    }
-    protection.intersects(
-        MemoryProtection::PAGE_READONLY
-            | MemoryProtection::PAGE_READWRITE
-            | MemoryProtection::PAGE_WRITECOPY
-            | MemoryProtection::PAGE_EXECUTE_READ
-            | MemoryProtection::PAGE_EXECUTE_READWRITE
-            | MemoryProtection::PAGE_EXECUTE_WRITECOPY,
-    )
-}
-
 fn state_name(state: MemoryState) -> &'static str {
     if state.contains(MemoryState::MEM_COMMIT) {
         "committed"
@@ -474,52 +473,8 @@ fn state_name(state: MemoryState) -> &'static str {
     } else if state.contains(MemoryState::MEM_FREE) {
         "free"
     } else {
-        "unknown"
+        UNKNOWN_NAME
     }
-}
-
-/// Index-aligned with `super::PROTECTION_NAMES`.
-const PROTECTION_FLAGS: [MemoryProtection; PROTECTION_NAMES.len()] = [
-    MemoryProtection::PAGE_NOACCESS,
-    MemoryProtection::PAGE_READONLY,
-    MemoryProtection::PAGE_READWRITE,
-    MemoryProtection::PAGE_WRITECOPY,
-    MemoryProtection::PAGE_EXECUTE,
-    MemoryProtection::PAGE_EXECUTE_READ,
-    MemoryProtection::PAGE_EXECUTE_READWRITE,
-    MemoryProtection::PAGE_EXECUTE_WRITECOPY,
-    MemoryProtection::PAGE_GUARD,
-    MemoryProtection::PAGE_NOCACHE,
-    MemoryProtection::PAGE_WRITECOMBINE,
-];
-
-/// Renders a region's protection as stable lowercase flag tokens joined by `" | "`,
-/// so callers and scope selectors never depend on a derived `Debug` rendering. Bits
-/// outside the documented flag set are reported verbatim as hexadecimal rather than
-/// dropped.
-fn protection_name(protection: MemoryProtection) -> String {
-    let mut known = MemoryProtection::empty();
-    let mut rendered = String::new();
-    for (flag, name) in PROTECTION_FLAGS.into_iter().zip(PROTECTION_NAMES) {
-        known |= flag;
-        if protection.contains(flag) {
-            if !rendered.is_empty() {
-                rendered.push_str(" | ");
-            }
-            rendered.push_str(name);
-        }
-    }
-    let unknown = protection.bits() & !known.bits();
-    if unknown != 0 {
-        if !rendered.is_empty() {
-            rendered.push_str(" | ");
-        }
-        rendered.push_str(&format!("0x{unknown:x}"));
-    }
-    if rendered.is_empty() {
-        rendered.push_str("none");
-    }
-    rendered
 }
 
 fn kind_name(kind: MemoryType) -> &'static str {

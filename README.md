@@ -10,9 +10,9 @@
 
 </div>
 
-Membridge gives humans, scripts, and AI coding agents a compact read-only interface to authorized process-memory captures. The tool performs exact mechanics—coverage inspection, byte scanning, address attribution, and bounded reads—while the caller decides what values mean and how findings relate to source code.
+Membridge gives humans, scripts, and AI coding agents a compact read-only interface to authorized process memory — either a running process on this host or a captured minidump. The tool performs exact mechanics—coverage inspection, byte scanning, address attribution, and bounded reads—while the caller decides what values mean and how findings relate to source code.
 
-The project is an early public prototype. Its first source is Windows x64 user-mode minidumps; live process and DMA acquisition remain roadmap work.
+The project is an early public prototype. It reads live processes on macOS, Linux, and Windows, and Windows x64 user-mode minidumps everywhere; DMA and system-wide acquisition remain roadmap work.
 
 ## Why Membridge?
 
@@ -27,7 +27,8 @@ Sending arbitrary memory to a language model is unsafe, expensive, and usually u
 
 ```mermaid
 flowchart LR
-    A[Authorized process dump] --> B[Read-only source]
+    A[Live process on this host] --> B[Read-only source]
+    A2[Authorized process dump] --> B
     B --> C[Coverage-aware scanner]
     C --> D[Bounded JSON evidence]
     D --> E[Human, script, or AI skill]
@@ -35,32 +36,34 @@ flowchart LR
 
 ## Current capabilities
 
-- Windows x64 `Memory64ListStream` and `MemoryListStream` minidumps.
+- Live read-only inspection of a running process on macOS, Linux, and Windows, selected with `--pid`.
+- Windows x64 `Memory64ListStream` and `MemoryListStream` minidumps on every host.
 - Windows-only live-process capture into a full-memory minidump, published atomically and imported automatically.
-- Memory-mapped, zero-copy scanning of captured bytes.
-- BLAKE3 source fingerprints.
-- Region state, protection, type, and capture coverage.
-- Module names, image bases, sizes, timestamps, and match RVAs.
+- Memory-mapped, zero-copy scanning of captured bytes; chunked, scope-bounded reads for live sources.
+- BLAKE3 source fingerprints; live sources fingerprint process identity, not content.
+- Region state, portable access rights, native protection, type, and capture coverage.
+- Module names, image bases, sizes, identities (PE `TimeDateStamp`, Mach-O `LC_UUID`), and match RVAs.
 - Tagged batches of 1–64 patterns: exact bytes, integers, floats, UTF-8, UTF-16LE, and masks.
 - Explicit integer width, signedness, and byte order; exact `f32`/`f64` bit patterns.
 - Byte- and nibble-granular masked patterns.
-- Bounded scan scopes over modules, regions, address ranges, protection classes, and memory types.
-- Overlapping and page-boundary matches.
+- Bounded scan scopes over modules, regions, address ranges, access rights, and memory types.
+- Overlapping, page-boundary, and chunk-boundary matches.
 - Per-pattern alignment constraints.
 - Deterministic result ordering and hard match quotas.
 - Gap-aware reads capped at 65,536 bytes.
-- One compact schema-v3 JSON object per command.
+- One compact schema-v4 JSON object per command.
 - A version-matched portable Agent Skill embedded in the binary.
 
 ## Deliberate boundaries
 
 Membridge does not currently:
 
-- attach to or live-scan running processes (only a one-shot Windows capture is supported);
-- write, allocate, protect, suspend, or execute memory;
-- resolve PDB symbols;
+- write, allocate, protect, suspend, or execute memory in a target;
+- attach as a debugger, stop a target, or set breakpoints;
+- freeze a live target, so a live scan observes a moving process rather than an instant;
+- resolve PDB or DWARF symbols;
 - disassemble, decode values it finds, or infer structures;
-- scan pointers or YARA rules, or refine results across captures;
+- scan pointers or YARA rules, or refine results across observations;
 - classify sensitive data automatically;
 - send telemetry or contact network services.
 
@@ -70,7 +73,8 @@ See [ROADMAP.md](ROADMAP.md) for the planned sequence and [PLAN.md](PLAN.md) for
 
 ### Requirements
 
-- An authorized Windows x64 user-mode minidump for real analysis.
+- For live inspection, a process this host authorizes you to read. See [Live process access](#live-process-access).
+- For dump analysis, an authorized Windows x64 user-mode minidump.
 
 ### Install via the plugin marketplace (recommended)
 
@@ -118,18 +122,20 @@ The release installers place `membridge` under Cargo's binary directory. `membri
 ## Command surface
 
 ```text
-membridge inspect <dump>
-membridge scan <dump> --spec <path|->
-membridge read <dump> --address <address> [--length <1..65536>]
+membridge inspect <dump> | --pid <pid>
+membridge scan <dump> | --pid <pid> --spec <path|->
+membridge read <dump> | --pid <pid> --address <address> [--length <1..65536>]
 membridge skill install [--force]
 membridge capture minidump --pid <pid> --output <path> [--force]
 ```
+
+`inspect`, `scan`, and `read` take exactly one source: a minidump path or `--pid`. Supplying both, or neither, fails with `INVALID_ARGUMENT`.
 
 Command execution emits one compact JSON object. Standard metadata flags such as `--help` and `--version` print text and exit successfully. Success responses have:
 
 ```json
 {
-  "schema": 3,
+  "schema": 4,
   "ok": true,
   "command": "inspect",
   "data": {}
@@ -142,28 +148,46 @@ Failures contain a stable code, human message, and retryability flag.
 
 ```sh
 membridge inspect capture.dmp
+membridge inspect --pid 4242
 ```
 
 Important fields:
 
 - `data.source.fingerprint`
+- `data.source.immutable`
 - `data.coverage.metadata_complete`
 - `data.coverage.coverage_complete`
 - `data.coverage.unavailable_readable_bytes`
+- `data.coverage.observation`
 - `data.coverage.limitations`
 - `data.regions`
 - `data.modules`
 
-A dump may parse successfully while omitting readable process memory. Membridge exposes that distinction rather than turning missing pages into false negatives.
+A dump may parse successfully while omitting readable process memory, and a live process may refuse a page it advertised as readable. Membridge exposes both distinctions rather than turning missing pages into false negatives.
 
-`limitations` is a deterministically ordered list with at most four stable codes:
+`limitations` is a deterministically ordered list with at most six stable codes:
 
 - `MEMORY_METADATA_MISSING`: the dump has no memory-information stream;
 - `MEMORY_METADATA_UNUSABLE`: the stream exists but cannot be parsed;
-- `EXPECTED_READABLE_SCOPE_UNPROVEN`: available metadata cannot establish the process's expected readable scope;
-- `KNOWN_READABLE_BYTES_MISSING`: metadata identifies readable bytes absent from the capture; `unavailable_readable_bytes` gives the exact known count.
+- `EXPECTED_READABLE_SCOPE_UNPROVEN`: the source's expected readable scope was not established or not fully read;
+- `KNOWN_READABLE_BYTES_MISSING`: metadata identifies readable bytes absent from the capture; `unavailable_readable_bytes` gives the exact known count;
+- `READS_NOT_ATTEMPTED`: a live command enumerated the address space without reading it, which is what `inspect` always does;
+- `READABLE_BYTES_UNREADABLE`: a live read of memory enumerated as readable was refused, because the target reprotected or unmapped it after enumeration.
 
 Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. In that case, zero unavailable bytes does not prove complete coverage.
+
+### Immutable and live sources differ
+
+| | Minidump | Live process |
+|---|---|---|
+| `source.kind` | `minidump` | `live` |
+| `source.immutable` | `true` | `false` |
+| `source.fingerprint` | BLAKE3 of the file's bytes | BLAKE3 of platform, PID, start time, and image path |
+| `coverage.observation` | `null` | wall-clock window of the command |
+| `region.captured_bytes` | bytes present in the file | `null`; nothing is captured ahead of time |
+| Reproducibility | identical command, identical answer | the target keeps running between enumeration and every read |
+
+A live answer describes an observation interval, not an instant. Membridge never freezes a target, so a value can appear, move, or vanish between two commands — and between enumeration and the read inside one command, which is exactly what `READABLE_BYTES_UNREADABLE` reports.
 
 ## Scan typed representations
 
@@ -234,9 +258,9 @@ membridge scan capture.dmp --spec - < scan.json
 
 ### Narrow the scan scope
 
-An optional `scope` restricts the scan to captured readable bytes inside an
-explicit address space. Categories intersect, selectors within a category form a
-union, and an omitted category adds no constraint:
+An optional `scope` restricts the scan to readable bytes inside an explicit address
+space. Categories intersect, selectors within a category form a union, and an omitted
+category adds no constraint:
 
 ```json
 {
@@ -246,7 +270,7 @@ union, and an omitted category adds no constraint:
     "modules": ["fixture.exe"],
     "regions": [0],
     "ranges": [{ "start": "0x140000000", "length": "0x2000" }],
-    "protections": ["page_readwrite"],
+    "protections": ["read", "write"],
     "types": ["private"]
   },
   "max_matches": 10000
@@ -254,13 +278,20 @@ union, and an omitted category adds no constraint:
 ```
 
 - `modules` accepts a full image path or a bare file name, compared
-  case-insensitively. A selector matching no captured module, or more than one,
+  case-insensitively. A selector matching no known module, or more than one,
   fails with `UNRESOLVED_SCOPE` instead of guessing.
 - `regions` uses the `id` values `inspect` reports; an unknown id fails.
 - `ranges` takes decimal or `0x` `start`/`length` strings with positive length.
+- `protections` names portable access rights — `read`, `write`, `execute` — and selects
+  every region carrying at least one of them. The platform's own rendering stays in
+  each region's `native_protection` (`page_readwrite`, `rw-/rwx`, `rw-p`) and is
+  reported, not selectable.
 - `protections` and `types` need region metadata; without it the scan fails with
   `SCOPE_METADATA_UNAVAILABLE` rather than scanning an unproven scope.
 - At most 32 selectors per category.
+
+Scoping a live scan also bounds the work: a live source reads only what the scope
+selects, so a 64 KiB scope copies 64 KiB, not the whole address space.
 
 A match is reported only when all of its bytes lie inside the scope, so a value
 straddling a scope edge is omitted rather than half-matched. The report echoes
@@ -294,12 +325,40 @@ Use `coverage.limitations` to explain incomplete coverage. Do not infer the caus
 ## Read bounded context
 
 ```sh
-membridge read capture.dmp \
-  --address 0x0000000140000100 \
-  --length 64
+membridge read capture.dmp --address 0x0000000140000100 --length 64
+membridge read --pid 4242 --address 0x0000000106df3fe0 --length 64
 ```
 
-Reads return one or more valid segments. `complete: false` means some requested bytes were absent. Never concatenate separated segments as if they were contiguous memory.
+Reads return one or more valid segments. `complete: false` means some requested bytes were absent — outside the capture, or refused by a live target. Never concatenate separated segments as if they were contiguous memory.
+
+## Live process access
+
+`--pid` attaches read-only to a running process. Membridge asks each kernel for the least authority that can enumerate and read, never for a handle or port that could modify the target:
+
+| Host | Mechanism | Read-only guarantee |
+|---|---|---|
+| macOS | `task_read_for_pid`, `mach_vm_region_recurse`, `mach_vm_read_overwrite` | the kernel's `TASK_FLAVOR_READ` port rejects writes, allocation, protection changes, and thread control |
+| Linux | `/proc/<pid>/maps`, `process_vm_readv` | no `ptrace` call, no attach, no stop; the target keeps running |
+| Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION \| PROCESS_VM_READ)`, `VirtualQueryEx`, `ReadProcessMemory` | the handle carries no write, operation, or thread rights |
+
+What each host requires of the target:
+
+- **macOS**: the target must carry `com.apple.security.get-task-allow`, or membridge must run as root. A locally built program under test can opt in with one command:
+
+  ```sh
+  codesign -f -s - --entitlements get-task-allow.plist ./target-under-test
+  ```
+
+  System Integrity Protection refuses Apple platform binaries and hardened-runtime applications either way; that is a system policy membridge reports rather than works around.
+- **Linux**: the caller must pass `ptrace_may_access`. With `/proc/sys/kernel/yama/ptrace_scope` at `0`, any same-uid dumpable target works; at `1`, the target must be a descendant of membridge or must opt in with `prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY)`; at `2` or across users, `CAP_SYS_PTRACE` is required.
+- **Windows**: membridge must run at an integrity level and privilege at least matching the target. Protected processes cannot be read at all.
+
+Refusals are explicit, never silent empty results:
+
+- `PROCESS_NOT_FOUND`: no such process;
+- `PROCESS_ACCESS_DENIED`: the kernel refused inspection, with the host-specific reason and remedy in the message;
+- `PROCESS_QUERY_FAILED`: the process exists and is readable, but required metadata could not be obtained;
+- `UNSUPPORTED_HOST`: this build has no live acquisition path.
 
 ## Capture a live process (Windows only)
 
@@ -375,15 +434,15 @@ The skill describes the available commands, analyses, limits, result semantics, 
 
 ### Sensitive-data canaries
 
-Place known non-production canaries in authorized dev builds, capture the process, and search their explicit UTF-8, UTF-16LE, numeric, or serialized byte forms. Use the region and module attribution to identify unexpected copies.
+Place known non-production canaries in authorized dev builds, then search their explicit UTF-8, UTF-16LE, numeric, or serialized byte forms — in the running process, or in a capture of it. Use the region and module attribution to identify unexpected copies.
 
 ### Copy and lifetime investigation
 
-Compare where a known value appears across controlled captures. Current Membridge analyzes each dump independently; persisted cross-snapshot refinement is planned.
+Compare where a known value appears across controlled observations. Current Membridge analyzes each observation independently; persisted cross-snapshot refinement is planned.
 
 ### Protection validation
 
-Confirm whether plaintext or decoded material remains in readable committed memory after the application claims to erase or protect it. An incomplete capture cannot prove absence.
+Confirm whether plaintext or decoded material remains in readable memory after the application claims to erase or protect it. Neither an incomplete capture nor an unreadable live page can prove absence.
 
 ### Reverse-engineering support
 
@@ -394,19 +453,22 @@ Only use Membridge on processes and captures you are authorized to inspect.
 ## Architecture
 
 ```text
-src/source/       acquisition-neutral read-only interfaces and minidump adapter
-src/capture.rs    Windows-only MiniDumpWriteDump live-process capture
-src/scan.rs       deterministic typed, masked, and scoped scanner
-src/protocol.rs   schema-v3 success and failure envelopes
-src/skill.rs      version-matched embedded skill installer
-src/main.rs       compact CLI surface
-.agents/skills/   canonical portable AI workflow knowledge
-.claude-plugin/    Claude Code-compatible marketplace catalog loaded by OMP
-tests/            behavioral source, scanner, scope, quota, read, CLI, and skill tests
-examples/         deterministic fixture and runnable demo
+src/source/          acquisition-neutral read-only interfaces
+src/source/minidump.rs  Windows x64 minidump adapter
+src/source/live/     read-only live process source: mach, procfs, and Win32 backends
+src/capture.rs       Windows-only MiniDumpWriteDump live-process capture
+src/scan.rs          deterministic typed, masked, and scoped scanner
+src/protocol.rs      schema-v4 success and failure envelopes
+src/skill.rs         version-matched embedded skill installer
+src/main.rs          compact CLI surface
+.agents/skills/      canonical portable AI workflow knowledge
+.claude-plugin/      Claude Code-compatible marketplace catalog loaded by OMP
+test-support/        behavioral-test helper process, excluded from releases
+tests/               behavioral source, scanner, scope, quota, read, live, CLI, and skill tests
+examples/            deterministic fixture and runnable demo
 ```
 
-The internal source boundary has no write operation. Future Windows and VMM sources must reuse the same normalized process-memory contract rather than create parallel scan engines.
+The internal source boundary has no write operation, and every source — captured or live — normalizes onto one region, coverage, and scanning contract. A new acquisition path adds a backend, never a parallel scan engine.
 
 ## Development
 
@@ -425,13 +487,13 @@ membridge skill install --force
 
 ### Deterministic demo
 
-The repository includes a synthetic Windows AMD64 minidump generator. Its fixture contains two readable UTF-8 canaries, one of them crossing a page boundary, a UTF-16LE copy, planted little- and big-endian integers and floats, an identical no-access decoy, and one missing readable region.
+The repository includes a synthetic Windows AMD64 minidump generator. Its fixture contains two readable UTF-8 canaries, one of them crossing a page boundary, a UTF-16LE copy, planted little- and big-endian integers and floats, an identical no-access decoy, and one missing readable region. The demo then starts a synthetic live target on this host and inspects it read-only.
 
 ```sh
 ./examples/demo.sh
 ```
 
-The demo runs both shipped specifications. `examples/canary-batch.json` matches the UTF-8, UTF-16LE, and masked canaries:
+The demo runs both shipped dump specifications. `examples/canary-batch.json` matches the UTF-8, UTF-16LE, and masked canaries:
 
 ```text
 0x0000000140000100  membridge-canary.masked, membridge-canary.utf8
@@ -439,7 +501,7 @@ The demo runs both shipped specifications. `examples/canary-batch.json` matches 
 0x0000000140000ffc  membridge-canary.masked, membridge-canary.utf8
 ```
 
-`examples/scoped-batch.json` scopes the scan to the `fixture.exe` module intersected with `page_readwrite` regions and matches the planted typed values:
+`examples/scoped-batch.json` scopes the scan to the `fixture.exe` module intersected with writable regions and matches the planted typed values:
 
 ```text
 0x0000000140000200  u32.le
@@ -450,6 +512,12 @@ The demo runs both shipped specifications. `examples/canary-batch.json` matches 
 ```
 
 The no-access decoy is excluded, and coverage reports 4,096 unavailable readable bytes.
+
+The live section then starts `test-support/synthetic-target`, which reserves one readable 64 KiB block holding two canaries followed by an inaccessible block of the same size, and:
+
+1. inspects it, reporting `READS_NOT_ATTEMPTED` because enumeration proves no byte;
+2. scans the readable block by address range, matching both canaries;
+3. reads across the boundary, returning 32 bytes and `complete: false` instead of a silent short read.
 
 ### Validate a change
 

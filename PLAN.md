@@ -29,20 +29,22 @@ The default engine must never acquire write, execution, injection, or process-co
 
 ## Current implementation
 
-The offline vertical slice, project/skill packaging, Windows capture, and typed
-deterministic patterns are complete:
+The offline vertical slice, project/skill packaging, Windows capture, typed
+deterministic patterns, and portable live process sources are complete:
 
 - Rust single binary;
-- internal read-only `MemorySource` and `ProcessMemory` interfaces;
+- internal read-only `MemorySource` and `ProcessMemory` interfaces shared by every source;
 - mmap-backed Windows x64 minidump parser;
-- normalized regions, modules, and coverage, with stable lowercase protection and type names;
+- read-only live process sources on macOS (`task_read_for_pid` mach read port), Linux (`/proc/<pid>/maps` and `process_vm_readv`), and Windows (`OpenProcess` with query-limited and VM-read rights);
+- normalized regions, modules, and coverage, with portable `read`/`write`/`execute` access names and the untranslated platform rendering kept alongside as `native_protection`;
 - tagged batch scanner over exact bytes, integers, floats, UTF-8, UTF-16LE, and masks;
-- bounded module, region, address-range, protection, and type scan scopes;
+- bounded module, region, address-range, access-right, and type scan scopes, with the resolved scope handed to the source so a live scan reads only what it selects;
+- chunked live scanning with a carried overlap, so a pattern straddling a chunk boundary is matched exactly once;
 - deterministic match quotas and scope-ordered continuation;
-- bounded gap-aware reads;
-- compact schema-v3 JSON;
-- synthetic behavioral fixture with planted typed values;
-- stable source-derived coverage limitation codes;
+- bounded gap-aware reads that stop at the first inaccessible page instead of padding;
+- compact schema-v4 JSON;
+- synthetic behavioral fixture with planted typed values, plus a portable synthetic live target;
+- stable source-derived coverage limitation codes, including live `READS_NOT_ATTEMPTED` and `READABLE_BYTES_UNREADABLE`;
 - embedded portable Agent Skill;
 - version-matched skill installation through the OMP marketplace or common user-level `.agents/skills` location;
 - Windows-only live-process capture producing an importable, atomically published minidump.
@@ -50,12 +52,35 @@ deterministic patterns are complete:
 Current commands:
 
 ```text
-membridge inspect
-membridge scan
-membridge read
+membridge inspect <dump> | --pid <pid>
+membridge scan <dump> | --pid <pid> --spec <path|->
+membridge read <dump> | --pid <pid> --address <address> [--length]
 membridge skill install
-membridge capture minidump
+membridge capture minidump --pid <pid> --output <path>
 ```
+
+### Live source decisions
+
+- **Least authority, enforced by the kernel where possible.** macOS requests only a
+  `TASK_FLAVOR_READ` port and never a control port, so writes, allocation, protection
+  changes, and thread control are refused by the port itself rather than by our
+  discipline. Linux never calls `ptrace`, so the target is never stopped or traced.
+  Windows opens `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` only.
+- **The target opts in; membridge does not escalate.** Access failures are reported with
+  the host's remedy (`get-task-allow` signing or root on macOS, `ptrace_scope`/
+  `PR_SET_PTRACER` on Linux, integrity level on Windows). Membridge never enables
+  `SeDebugPrivilege`, never asks for a driver, and never disables SIP.
+- **Volatility is stated, not hidden.** A live source reports `immutable: false`, an
+  observation interval, and coverage computed from what the command actually read.
+  Determinism remains "identical bytes produce identical ordered matches"; membridge
+  does not claim a live target holds still.
+- **Absence is never inferred from a refusal.** A read that fails on memory enumerated
+  as readable records `READABLE_BYTES_UNREADABLE` and leaves the range unproven.
+- **Bounded by construction.** Live reads are chunked through one reusable 4 MiB buffer,
+  the resolved scope is pushed into the source so a narrow scan copies only its scope,
+  and region and module counts fail closed at explicit limits.
+- **One scanner.** Live sources deliver chunks through the same `ProcessMemory` contract
+  the minidump source uses; there is no second scan engine.
 
 ## Active milestone: Stateful daemon and result sets
 
@@ -73,15 +98,14 @@ The CLI remains the public contract; the daemon stays an implementation detail b
 
 ## Following milestones
 
-### Direct Windows live source
+### Match revalidation for live sources
 
-Use documented user-mode APIs:
-
-- `OpenProcess`;
-- `VirtualQueryEx`;
-- `ReadProcessMemory`.
-
-Live scans are observation intervals, not coherent snapshots. Results must carry target creation time, image identity, start/completion timestamps, read failures, and revalidation state. Do not add a driver or enable `SeDebugPrivilege` automatically.
+Live acquisition is done; what remains is proving a match still holds. A live scan
+reports where bytes matched during its observation interval, and nothing re-reads a
+match afterwards. Add an explicit revalidation step that re-reads each retained match
+and reports whether it still matches, was refused, or vanished, so a caller can tell a
+stable value from one that only existed mid-sweep. Membridge still never freezes the
+target.
 
 ### Known-value refinement
 
@@ -184,33 +208,43 @@ and an empty `scope` object, are rejected rather than silently interpreted. Each
 category accepts at most 32 selectors (`scan::MAX_SCOPE_SELECTORS`).
 
 Resolution never guesses. A module selector matches a full image path or a bare file
-name case-insensitively and must resolve to exactly one captured module; zero or
+name case-insensitively and must resolve to exactly one known module; zero or
 several matches, and unknown region ids, report `UNRESOLVED_SCOPE`. `protections` and
 `types` require region metadata and report `SCOPE_METADATA_UNAVAILABLE` when the source
 has none, instead of scanning an unproven scope. Protection selectors are validated
 against `source::PROTECTION_NAMES` and type selectors against `source::TYPE_NAMES`, so
 a typo fails instead of quietly matching nothing.
 
-Region protection is therefore serialized as lowercase Windows flag names joined by
-`" | "` (for example `page_readwrite`), with undocumented bits rendered as hexadecimal.
-That replaced a derived `Debug` rendering and is an intentional incompatible response
-change: `protocol::SCHEMA_VERSION` is now `3`.
+Region protection is therefore serialized twice, for two different readers.
+`protection` carries the portable access rights `read`, `write`, and `execute` joined by
+`" | "` (or `none`), which is what scope selectors accept, so one specification works
+against a Windows dump, a mach task, and a procfs mapping. `native_protection` carries
+the platform's own rendering verbatim - `page_readwrite`, `rw-/rwx`, `rw-p`, with
+undocumented Windows bits as hexadecimal - so no platform detail is lost. A Windows
+guard page is reported as unreadable while keeping its `page_guard` token, because the
+first access to it raises an exception in the target instead of returning bytes.
+Replacing the previous Windows-only vocabulary is an intentional incompatible change:
+`protocol::SCHEMA_VERSION` is now `4`.
 
 Scopes are resolved into a sorted, merged, non-overlapping interval list, so
 overlapping selectors neither duplicate nor omit matches, `scanned_bytes` counts each
-captured readable byte once, and match order and `next_address` stay ascending within
-the scope regardless of how spans are visited. The report echoes `applied`,
-`interval_count`, `selected_bytes` (the intersection size, `null` when unscoped), and
-`scanned_bytes` (captured readable bytes actually examined).
+readable byte once, and match order and `next_address` stay ascending within
+the scope regardless of how spans are visited. That same interval list is handed to the
+source, so a live source reads only the selected bytes rather than the whole address
+space. The report echoes `applied`, `interval_count`, `selected_bytes` (the intersection
+size, `null` when unscoped), and `scanned_bytes` (readable bytes actually examined,
+counting a chunk overlap once).
 
 ### Coverage
 
-Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion. Coverage reports preserve exact known byte counts and a deterministic list of at most four stable limitation codes:
+Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion. Coverage reports preserve exact known byte counts and a deterministic list of at most six stable limitation codes:
 
 - `MEMORY_METADATA_MISSING`;
 - `MEMORY_METADATA_UNUSABLE`;
 - `EXPECTED_READABLE_SCOPE_UNPROVEN`;
-- `KNOWN_READABLE_BYTES_MISSING`.
+- `KNOWN_READABLE_BYTES_MISSING`;
+- `READS_NOT_ATTEMPTED`;
+- `READABLE_BYTES_UNREADABLE`.
 
 The parser emits these codes only from observed source conditions. Missing or unusable metadata means the expected readable scope is unproven; zero known unavailable bytes must not be presented as complete coverage.
 

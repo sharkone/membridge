@@ -1,0 +1,20 @@
+{
+  "schema": 2,
+  "patterns": [
+    {
+      "tag": "synthetic-canary.utf8",
+      "value": { "kind": "utf8", "text": "MBRIDGE-SYNTHETIC-CANARY" },
+      "alignment": 1
+    },
+    {
+      "tag": "synthetic-canary.utf16le",
+      "value": { "kind": "utf16le", "text": "MBRIDGE-SYNTHETIC-CANARY" },
+      "alignment": 2
+    }
+  ],
+  "scope": {
+    "protections": ["write"],
+    "types": ["private"]
+  },
+  "max_matches": 1000
+}

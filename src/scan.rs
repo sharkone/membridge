@@ -4,7 +4,8 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use serde::{Deserialize, Serialize};
 
 use crate::source::{
-    Address, Coverage, MemoryRegion, ModuleInfo, PROTECTION_NAMES, ProcessMemory, TYPE_NAMES,
+    Address, AddressRange as Interval, Coverage, MemoryRegion, ModuleInfo, PROTECTION_NAMES,
+    ProcessMemory, ScanChunk, TYPE_NAMES,
 };
 use crate::{Error, Result};
 
@@ -156,6 +157,7 @@ pub struct RegionAttribution {
     pub offset: Address,
     pub kind: String,
     pub protection: String,
+    pub native_protection: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,12 +165,6 @@ pub struct ModuleAttribution {
     pub name: String,
     pub base: Address,
     pub rva: Address,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Interval {
-    start: u64,
-    end: u64,
 }
 
 #[derive(Debug)]
@@ -221,18 +217,27 @@ pub fn scan(process: &dyn ProcessMemory, spec: &ScanSpec) -> Result<ScanReport> 
         stopped: false,
     };
 
-    process.for_each_scannable_span(&mut |base, span| {
+    // Chunked sources repeat up to `max_pattern_len - 1` bytes at the head of the next
+    // chunk so a pattern straddling the boundary is still found exactly once.
+    let overlap = max_pattern_len.saturating_sub(1) as usize;
+    process.for_each_scannable_span(scope.intervals.as_deref(), overlap, &mut |chunk| {
         if state.stopped {
             return Ok(());
         }
+        let ScanChunk { base, bytes, carry } = chunk;
+        // Everything ending at or before this address was already reported by the
+        // previous chunk of this run, which is exactly what it was able to contain.
+        let emit_after = base
+            .checked_add(carry as u64)
+            .ok_or_else(|| Error::SourceInvariant("scan carry address overflow".into()))?;
         match scope.intervals.as_deref() {
             None => {
-                state.scanned_bytes += span.len() as u64;
-                scan_slice(&context, &mut state, base, span)
+                state.scanned_bytes += (bytes.len() - carry) as u64;
+                scan_slice(&context, &mut state, base, bytes, emit_after)
             }
             Some(intervals) => {
                 let span_end = base
-                    .checked_add(span.len() as u64)
+                    .checked_add(bytes.len() as u64)
                     .ok_or_else(|| Error::SourceInvariant("scan span address overflow".into()))?;
                 let first = intervals.partition_point(|interval| interval.end <= base);
                 for interval in &intervals[first..] {
@@ -246,8 +251,14 @@ pub fn scan(process: &dyn ProcessMemory, spec: &ScanSpec) -> Result<ScanReport> 
                     }
                     let offset = (start - base) as usize;
                     let length = (end - start) as usize;
-                    state.scanned_bytes += length as u64;
-                    scan_slice(&context, &mut state, start, &span[offset..offset + length])?;
+                    state.scanned_bytes += end.saturating_sub(start.max(emit_after));
+                    scan_slice(
+                        &context,
+                        &mut state,
+                        start,
+                        &bytes[offset..offset + length],
+                        emit_after,
+                    )?;
                     if state.stopped {
                         break;
                     }
@@ -274,19 +285,24 @@ pub fn scan(process: &dyn ProcessMemory, spec: &ScanSpec) -> Result<ScanReport> 
         },
         scan_complete,
         next_address: state.next_address.map(Address),
-        coverage: process.coverage().clone(),
+        // Read after the sweep: for a live source this is what the scan actually
+        // proved readable, not a snapshot taken before any byte was touched.
+        coverage: process.coverage(),
         matches: state.output,
     })
 }
 
-/// Scans one contiguous captured readable slice that lies entirely inside the
-/// selected scope. A match is retained only when every one of its bytes is
-/// inside this slice, so scope and capture boundaries never fabricate matches.
+/// Scans one contiguous readable slice that lies entirely inside the selected scope.
+/// A match is retained only when every one of its bytes is inside this slice, so scope
+/// and capture boundaries never fabricate matches, and only when it ends after
+/// `emit_after`, which suppresses the duplicates a chunk overlap would otherwise
+/// produce.
 fn scan_slice(
     context: &ScanContext<'_>,
     state: &mut ScanState,
     base: u64,
     slice: &[u8],
+    emit_after: u64,
 ) -> Result<()> {
     let mut pending: BTreeMap<(u64, usize), BTreeSet<String>> = BTreeMap::new();
     for found in context.automaton.find_overlapping_iter(slice) {
@@ -309,6 +325,12 @@ fn scan_slice(
             .checked_add(start as u64)
             .ok_or_else(|| Error::SourceInvariant("match address overflow".into()))?;
         if address % pattern.alignment != 0 {
+            continue;
+        }
+        // Suppress the duplicated half of a chunk overlap: a match ending at or before
+        // `emit_after` was already fully contained in the previous chunk and reported
+        // there, while one ending past it could not have been.
+        if address.saturating_add(pattern.bytes.len() as u64) <= emit_after {
             continue;
         }
         pending
@@ -918,6 +940,7 @@ fn attributed_match(
             offset: Address(address - region.base.0),
             kind: region.kind.clone(),
             protection: region.protection.clone(),
+            native_protection: region.native_protection.clone(),
         });
     let module = modules
         .iter()

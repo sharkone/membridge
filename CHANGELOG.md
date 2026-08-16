@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- Live process sources. `inspect`, `scan`, and `read` accept `--pid <pid>` and operate read-only on a running process on macOS, Linux, and Windows. Each host uses the least authority that can enumerate and read: a `TASK_FLAVOR_READ` mach port from `task_read_for_pid` on macOS (the kernel itself rejects writes, allocation, protection changes, and thread control on that port), `/proc/<pid>/maps` plus `process_vm_readv` on Linux with no `ptrace` attach and no target stop, and `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ)` with `VirtualQueryEx`/`ReadProcessMemory` on Windows. Modules come from the dyld image list, file-backed executable mappings, and a Toolhelp snapshot respectively, with Mach-O `LC_UUID` and PE `TimeDateStamp` identities.
+- Live coverage semantics. `coverage.observation` reports the wall-clock window an answer covers, `source.immutable` is `false` for a live source, and two new limitations are stable: `READS_NOT_ATTEMPTED` (enumeration proved no byte, which is what a live `inspect` always does) and `READABLE_BYTES_UNREADABLE` (memory enumerated as readable refused a read, so the target changed underneath the command).
+- Chunked, scope-bounded live scanning. A live source reads only the resolved scan scope, in 4 MiB chunks through one reusable buffer, and repeats up to `max_pattern_len - 1` bytes at each chunk head so a pattern straddling a chunk boundary is found exactly once and never twice.
+- New stable errors `PROCESS_NOT_FOUND`, `PROCESS_ACCESS_DENIED` (carrying the host-specific reason and remedy), and `PROCESS_QUERY_FAILED`.
+- A third shipped skill example, `examples/live-batch.json`, scoping a live scan to writable private memory.
+
+### Changed
+
+- Region protection is now portable. `MemoryRegion::protection` reports `read`, `write`, and `execute` joined by `" | "` (or `none`), and `scope.protections` selectors use those names; the untranslated platform rendering moved to the new `native_protection` field (`page_readwrite`, `rw-/rwx`, `rw-p`). This is an incompatible response and specification change: `protocol.SCHEMA_VERSION` is now `4`, and `protections: ["page_readwrite"]` must become `protections: ["write"]` or `["read"]`.
+- `MemoryRegion::captured_bytes` is now nullable and is `null` for live sources, which capture nothing ahead of time.
+- `ModuleInfo::timestamp` became `identity`, a nullable lowercase hexadecimal string: the PE `TimeDateStamp` on Windows sources, the Mach-O `LC_UUID` on macOS, and `null` on Linux, where procfs alone proves no module identity.
+- `inspect`, `scan`, and `read` require exactly one source; passing both a dump path and `--pid`, or neither, fails with `INVALID_ARGUMENT`.
+- The Windows-only behavioral-test helper became the portable `test-support/synthetic-target`, which reserves a readable 64 KiB block with two canaries followed by an inaccessible block, and opts into inspection with `PR_SET_PTRACER_ANY` on Linux.
+- `./examples/demo.sh` now also starts that target and runs live `inspect`, a scoped live `scan`, and a boundary `read` against it on the host it runs on.
+
+### Alpha limitations
+
+- A live source is not reproducible: membridge never freezes a target, so an answer describes an observation interval, not an instant.
+- Live access is subject to host policy. macOS needs `com.apple.security.get-task-allow` on the target or root, and System Integrity Protection refuses Apple platform binaries and hardened-runtime applications either way. Linux needs `ptrace_may_access` to pass, which at `ptrace_scope` 1 means a descendant target or an explicit `PR_SET_PTRACER` opt-in. Windows needs a matching integrity level and cannot read protected processes.
+- An unscoped live scan reads every readable byte the process maps, including gigabytes of shared system libraries; scope it.
+
 ## [0.1.0-alpha.3] - 2026-08-15
 
 ### Added

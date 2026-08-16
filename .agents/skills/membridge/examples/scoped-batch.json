@@ -47,7 +47,7 @@
   ],
   "scope": {
     "modules": ["fixture.exe"],
-    "protections": ["page_readwrite"]
+    "protections": ["write"]
   },
   "max_matches": 10000
 }
