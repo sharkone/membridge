@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::Path;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 
 use minidump::format::MINIDUMP_STREAM_TYPE;
 use minidump_synth::{
@@ -28,6 +30,128 @@ pub const TYPED_U16_BE: u16 = 0x1234;
 pub const TYPED_U16_BE_MATCH: u64 = BASE + 0x228;
 /// UTF-16LE encoding of `CANARY`, placed at a 2-byte-aligned address.
 pub const UTF16_MATCH: u64 = BASE + 0x230;
+
+/// A running `synthetic-target` helper process with a known memory layout: one
+/// readable 64 KiB block holding two canaries, immediately followed by an
+/// inaccessible block of the same size.
+pub struct SyntheticTarget {
+    pub child: Child,
+    pub pid: u32,
+    pub readable: u64,
+    pub noaccess: u64,
+    /// Owns the private copy of the helper binary this instance runs, so parallel
+    /// tests never sign or replace one another's executable.
+    _home: tempfile::TempDir,
+}
+
+impl SyntheticTarget {
+    /// Builds the helper if needed, starts it, and waits for its `READY` line.
+    ///
+    /// On macOS the helper is signed ad-hoc with `com.apple.security.get-task-allow`
+    /// first: without that entitlement the kernel refuses a task port to an
+    /// unprivileged caller, so the test would otherwise only pass under `sudo`.
+    pub fn start() -> Self {
+        let built = build_helper();
+        let home = tempfile::tempdir().expect("create helper directory");
+        let exe = home
+            .path()
+            .join(built.file_name().expect("helper file name"));
+        fs::copy(&built, &exe).expect("copy the helper binary");
+        #[cfg(target_os = "macos")]
+        sign_for_debugging(&exe);
+
+        let mut child = Command::new(&exe)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start synthetic-target");
+        let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
+        let mut ready = String::new();
+        stdout.read_line(&mut ready).expect("read READY line");
+        assert!(
+            ready.starts_with("READY"),
+            "unexpected target output: {ready}"
+        );
+
+        Self {
+            pid: child.id(),
+            readable: ready_address(&ready, "readable=0x"),
+            noaccess: ready_address(&ready, "noaccess=0x"),
+            child,
+            _home: home,
+        }
+    }
+}
+
+impl Drop for SyntheticTarget {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn ready_address(line: &str, field: &str) -> u64 {
+    line.split_whitespace()
+        .find_map(|token| token.strip_prefix(field))
+        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+        .unwrap_or_else(|| panic!("READY line carries a {field} address: {line}"))
+}
+
+/// `synthetic-target` is a separate workspace package (test-support/synthetic-target)
+/// so `dist` never ships it as a release artifact; a plain `[[bin]]` in this package
+/// would still be enumerated and required by dist's build step. It is built
+/// explicitly here so the test is self-sufficient regardless of how `cargo test` was
+/// invoked, then located next to this test binary's sibling artifacts.
+pub fn build_helper() -> PathBuf {
+    let manifest_path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let build = Command::new(env!("CARGO"))
+        .args(["build", "--quiet", "--manifest-path", manifest_path])
+        .args(["--package", "synthetic-target"])
+        .status()
+        .expect("run cargo build");
+    assert!(build.success(), "failed to build synthetic-target");
+
+    // The test binary lives in `<target>/<profile>/deps`, so the helper it just built
+    // sits two levels up. `CARGO_BIN_EXE_*` is unavailable here because this module is
+    // also included by an example target.
+    std::env::current_exe()
+        .expect("current test executable path")
+        .parent()
+        .and_then(Path::parent)
+        .expect("test binaries live under <target>/<profile>/deps")
+        .join(format!("synthetic-target{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Ad-hoc signs the helper with `com.apple.security.get-task-allow`, the entitlement
+/// that lets a same-user process obtain a read-only task port for it. This is the
+/// documented way to make a program under test inspectable without root.
+#[cfg(target_os = "macos")]
+fn sign_for_debugging(exe: &Path) {
+    let entitlements = exe.with_extension("entitlements.plist");
+    fs::write(
+        &entitlements,
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>com.apple.security.get-task-allow</key><true/>
+</dict></plist>
+"#,
+    )
+    .expect("write entitlements");
+
+    let signed = Command::new("codesign")
+        .args(["-f", "-s", "-", "--entitlements"])
+        .arg(&entitlements)
+        .arg(exe)
+        .output()
+        .expect("run codesign");
+    assert!(
+        signed.status.success(),
+        "codesign failed: {}",
+        String::from_utf8_lossy(&signed.stderr)
+    );
+}
+
 #[derive(Clone, Copy)]
 pub enum MemoryMetadataFixture {
     Complete,
@@ -150,4 +274,96 @@ pub fn write_oversized_capture_fixture(path: &Path, segment_count: usize) {
     }
     let dump = dump.finish().expect("synthetic minidump labels resolve");
     fs::write(path, dump).expect("write synthetic minidump");
+}
+
+/// A `ProcessMemory` that hands the scanner a buffer in fixed-size chunks the way a
+/// live source must, so the chunk-overlap contract can be proven without depending on
+/// a real process happening to map a multi-megabyte region.
+pub struct ChunkedSource {
+    base: u64,
+    bytes: Vec<u8>,
+    chunk: usize,
+    process: membridge::source::ProcessInfo,
+    regions: Vec<membridge::source::MemoryRegion>,
+}
+
+impl ChunkedSource {
+    pub fn new(base: u64, bytes: Vec<u8>, chunk: usize) -> Self {
+        let regions = vec![membridge::source::MemoryRegion {
+            id: 0,
+            base: membridge::source::Address(base),
+            size: bytes.len() as u64,
+            captured_bytes: None,
+            state: "committed".into(),
+            protection: "read | write".into(),
+            native_protection: "rw-".into(),
+            kind: "private".into(),
+            committed: true,
+            readable: true,
+        }];
+        Self {
+            base,
+            bytes,
+            chunk,
+            process: membridge::source::ProcessInfo {
+                id: "pid:1".into(),
+                display_name: "chunked".into(),
+            },
+            regions,
+        }
+    }
+}
+
+impl membridge::source::ProcessMemory for ChunkedSource {
+    fn process(&self) -> &membridge::source::ProcessInfo {
+        &self.process
+    }
+
+    fn regions(&self) -> &[membridge::source::MemoryRegion] {
+        &self.regions
+    }
+
+    fn modules(&self) -> &[membridge::source::ModuleInfo] {
+        &[]
+    }
+
+    fn coverage(&self) -> membridge::source::Coverage {
+        membridge::source::Coverage {
+            expected_readable_bytes: self.bytes.len() as u64,
+            captured_readable_bytes: self.bytes.len() as u64,
+            unavailable_readable_bytes: 0,
+            metadata_complete: true,
+            coverage_complete: true,
+            observation: None,
+            limitations: Vec::new(),
+        }
+    }
+
+    fn for_each_scannable_span(
+        &self,
+        _selection: Option<&[membridge::source::AddressRange]>,
+        overlap: usize,
+        visitor: &mut dyn FnMut(membridge::source::ScanChunk<'_>) -> membridge::Result<()>,
+    ) -> membridge::Result<()> {
+        let mut cursor = 0_usize;
+        while cursor < self.bytes.len() {
+            let end = (cursor + self.chunk).min(self.bytes.len());
+            let carry = cursor.min(overlap);
+            visitor(membridge::source::ScanChunk {
+                base: self.base + (cursor - carry) as u64,
+                bytes: &self.bytes[cursor - carry..end],
+                carry,
+            })?;
+            cursor = end;
+        }
+        Ok(())
+    }
+
+    fn read(
+        &self,
+        _address: u64,
+        _length: usize,
+    ) -> membridge::Result<Vec<membridge::source::ReadSegment>> {
+        Ok(Vec::new())
+    }
 }

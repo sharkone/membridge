@@ -12,13 +12,14 @@ The engine provides mechanics. Callers and Agent Skills provide interpretation.
 
 Shipped capabilities:
 
+- read-only live process inspection on macOS, Linux, and Windows;
 - Windows x64 user-mode minidump import;
 - memory regions, modules, and explicit coverage;
 - tagged batch scanning of typed, string, and masked representations;
-- bounded module, region, range, protection, and type scan scopes;
+- bounded module, region, range, access-right, and type scan scopes;
 - deterministic match limits;
 - bounded gap-aware reads;
-- compact schema-v3 JSON;
+- compact schema-v4 JSON;
 - embedded Agent Skill installation.
 
 Before changing behavior, read:
@@ -40,10 +41,22 @@ Future mutation belongs in a separately launched and separately reviewed mode.
 
 ### Coverage is distinct from scan completion
 
-- `scan_complete` means the scanner exhausted the selected captured scope.
-- `coverage_complete` means the source contained every expected readable byte.
+- `scan_complete` means the scanner exhausted the selected scope it could read.
+- `coverage_complete` means every expected readable byte was actually present and read.
 
-Never infer absence from missing pages. Never collapse unavailable reads into non-matches.
+Never infer absence from missing pages. Never collapse unavailable reads into non-matches. A live read refused by the kernel is unproven memory, not a non-match.
+
+### Live sources are observations, not snapshots
+
+A live source must report `immutable: false` and an observation interval, and must never
+claim reproducibility. Membridge never freezes, suspends, or debugs a target, so memory
+may change between enumeration and a read; that outcome is reported as
+`READABLE_BYTES_UNREADABLE`, never silently skipped.
+
+Live acquisition must request the least authority that can enumerate and read - a mach
+read port, procfs plus `process_vm_readv`, a query-limited and VM-read handle - and must
+never escalate privilege, install a driver, or work around a host access policy. An
+access refusal is reported with the host's own remedy.
 
 ### Bounded output
 
@@ -55,7 +68,7 @@ Serialize virtual addresses as fixed-width hexadecimal strings. JSON numbers can
 
 ### Determinism
 
-Identical source bytes and scan specifications must produce identical ordered matches regardless of worker count or host. Preserve overlapping and boundary-spanning matches.
+Identical source bytes and scan specifications must produce identical ordered matches regardless of worker count or host. Preserve overlapping, page-boundary, and chunk-boundary matches; a chunked source must repeat enough overlap that a straddling pattern is found exactly once, never zero or twice.
 
 ### Sensitive data
 
@@ -69,9 +82,10 @@ Do not add telemetry, symbol downloads, update checks, remote listeners, or outb
 
 ```text
 src/error.rs             stable internal errors and protocol codes
-src/protocol.rs          schema-v3 JSON envelopes
+src/protocol.rs          schema-v4 JSON envelopes
 src/source/mod.rs        read-only acquisition-neutral traits and models
 src/source/minidump.rs   Windows x64 minidump adapter
+src/source/live/         read-only live process source: mach, procfs, and Win32 backends
 src/capture.rs           Windows-only MiniDumpWriteDump live-process capture
 src/scan.rs              deterministic typed, masked, and scoped scanner
 src/skill.rs             embedded version-matched skill installer
@@ -146,7 +160,7 @@ cargo test
 ./examples/demo.sh
 ```
 
-`test-support/synthetic-capture-target` is a separate workspace package holding the Windows-only synthetic capture-test helper process; it opts itself out of `dist` via `[package.metadata.dist] dist = false` so release archives never contain it. The Windows capture behavioral test builds it on demand and locates it next to `membridge`'s own build artifacts; it is never a public command.
+`test-support/synthetic-target` is a separate workspace package holding the portable behavioral-test helper process; it opts itself out of `dist` via `[package.metadata.dist] dist = false` so release archives never contain it. It reserves one readable 64 KiB block with two canaries followed by an inaccessible block, opts into inspection with `PR_SET_PTRACER_ANY` on Linux, and is signed ad-hoc with `com.apple.security.get-task-allow` by the harness on macOS. Behavioral tests build it on demand, run a private copy so parallel tests never race on signing, and locate it next to `membridge`'s own build artifacts; it is never a public command.
 
 Release changes additionally require:
 
@@ -163,18 +177,20 @@ Behavioral tests should defend observable contracts:
 - region and module normalization;
 - partial coverage;
 - readable versus no-access memory;
-- overlapping and page-boundary matches;
+- overlapping, page-boundary, and chunk-boundary matches;
 - typed integer, float, string, and masked encoding, including rejected values;
 - scope resolution, intersection, and unresolvable selectors;
 - deterministic ordering;
 - match-limit incompleteness;
 - gap-aware reads;
+- live region, module, and coverage reporting, including unproven live coverage and a read that stops at the first inaccessible page;
+- source selection requiring exactly one of a dump path or `--pid`;
 - JSON address encoding;
 - Agent Skill installation and replacement.
 
-Use `minidump-synth` fixtures. Do not commit real process dumps.
+Use `minidump-synth` fixtures for captured sources and `test-support/synthetic-target` for live ones. Do not commit real process dumps.
 
-For Windows capture/live work, add Windows-native behavioral coverage; cross-compilation alone is not proof.
+Live and capture behavior must be proven natively on each host it claims to support; cross-compilation alone is not proof. Cross-compiling the Linux and Windows backends catches type errors only, and every such check must be stated as exactly that.
 
 ## Documentation and tracking
 

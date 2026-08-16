@@ -30,6 +30,12 @@ pub enum Error {
     SourceTooLarge(String),
     #[error("unsupported host: {0}")]
     UnsupportedHost(String),
+    #[error("process {0} was not found")]
+    ProcessNotFound(u32),
+    #[error("process access denied: {0}")]
+    ProcessAccessDenied(String),
+    #[error("process query failed: {0}")]
+    ProcessQueryFailed(String),
     #[error("capture failed: {0}")]
     CaptureFailed(String),
     #[error("JSON error: {0}")]
@@ -51,6 +57,9 @@ impl Error {
             Self::SourceInvariant(_) => "SOURCE_INVARIANT",
             Self::SourceTooLarge(_) => "SOURCE_TOO_LARGE",
             Self::UnsupportedHost(_) => "UNSUPPORTED_HOST",
+            Self::ProcessNotFound(_) => "PROCESS_NOT_FOUND",
+            Self::ProcessAccessDenied(_) => "PROCESS_ACCESS_DENIED",
+            Self::ProcessQueryFailed(_) => "PROCESS_QUERY_FAILED",
             Self::CaptureFailed(_) => "CAPTURE_FAILED",
             Self::Json(_) => "INVALID_JSON",
         }

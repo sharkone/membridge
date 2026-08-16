@@ -13,7 +13,7 @@ This document describes milestone order. GitHub issues contain implementation ta
 | M2: Windows minidump capture | Complete | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
 | M3: Typed deterministic patterns | Complete | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
 | M4: Stateful daemon and result sets | Active | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
-| M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
+| M5: Portable live sources | Complete | Read-only live process inspection on macOS, Linux, and Windows behind one contract | [#4](https://github.com/sharkone/membridge/issues/4) |
 | M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing | [#8](https://github.com/sharkone/membridge/issues/8) |
 | M7: Stable pointer chains | Planned | Bounded module-rooted paths validated across snapshots | [#6](https://github.com/sharkone/membridge/issues/6) |
 | M8: VMM-backed acquisition | Research gate | System dumps, WinPMEM, VM, remote, and DMA sources | [#3](https://github.com/sharkone/membridge/issues/3) |
@@ -140,17 +140,34 @@ Introduce state after the scan and live-source contracts are proven:
 
 No TCP listener and no network behavior by default.
 
-## M5: Direct Windows live source
+## M5: Portable live sources
 
-Add same-host user-mode acquisition using documented APIs. The source must:
+Delivered:
 
-- bind PID to process creation time and image identity;
-- enumerate regions with `VirtualQueryEx`;
-- read using `ReadProcessMemory`;
-- partition around inaccessible regions;
-- record every scan as an observation interval;
-- revalidate matches before presenting current bytes;
-- remain read-only.
+- `--pid` as a source selector for `inspect`, `scan`, and `read`, mutually exclusive with a dump path;
+- macOS acquisition through `task_read_for_pid`, `mach_vm_region_recurse`, and `mach_vm_read_overwrite`, holding a `TASK_FLAVOR_READ` port that the kernel forbids from writing, allocating, reprotecting, or touching threads;
+- Linux acquisition through `/proc/<pid>/maps` and `process_vm_readv`, with no `ptrace` call, no attach, and no target stop;
+- Windows acquisition through `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ)`, `VirtualQueryEx`, and `ReadProcessMemory`;
+- module enumeration from the dyld image list, file-backed executable mappings, and a Toolhelp snapshot, with `LC_UUID` and `TimeDateStamp` identities;
+- process identity bound to PID, start time, and image path, folded into the source fingerprint so a reused PID is distinguishable;
+- portable `read`/`write`/`execute` access rights with the native protection rendering preserved (schema v4);
+- live coverage semantics: `immutable: false`, an observation interval, and `READS_NOT_ATTEMPTED`/`READABLE_BYTES_UNREADABLE`;
+- chunked scanning with a carried overlap and scope-bounded reads, so a boundary-spanning pattern is matched once and a narrow scope copies only its own bytes;
+- `PROCESS_NOT_FOUND`, `PROCESS_ACCESS_DENIED`, and `PROCESS_QUERY_FAILED` with host-specific remedies.
+
+Non-goals:
+
+- freezing, suspending, or debugging the target;
+- privilege escalation, driver installation, or SIP/Yama circumvention;
+- memory writes;
+- claiming a live answer is reproducible.
+
+Exit evidence:
+
+- a portable synthetic target reserves a readable block with two canaries followed by an inaccessible block, and native behavioral tests prove region and module reporting, unproven live coverage, canaries found at their exact planted addresses, an inaccessible scope scanned for zero bytes, and a read that stops at the first inaccessible page;
+- a chunked-source test proves a pattern straddling a chunk boundary is reported exactly once;
+- `./examples/demo.sh` inspects, scopes a scan against, and reads across a boundary in a live process on the host that runs it;
+- formatting, Clippy, and the complete suite pass on the development host, with the Linux and Windows backends compiled for their targets.
 
 PSS snapshots may become an optional reproducibility mode later; direct reads remain the external-tool default.
 

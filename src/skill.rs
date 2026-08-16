@@ -8,6 +8,7 @@ use crate::{Error, Result};
 const SKILL: &str = include_str!("../.agents/skills/membridge/SKILL.md");
 const CANARY_BATCH: &str = include_str!("../.agents/skills/membridge/examples/canary-batch.json");
 const SCOPED_BATCH: &str = include_str!("../.agents/skills/membridge/examples/scoped-batch.json");
+const LIVE_BATCH: &str = include_str!("../.agents/skills/membridge/examples/live-batch.json");
 const INSTALL_SH: &str = include_str!("../.agents/skills/membridge/scripts/install.sh");
 const INSTALL_PS1: &str = include_str!("../.agents/skills/membridge/scripts/install.ps1");
 
@@ -58,6 +59,10 @@ fn install_at(target_root: &Path, force: bool) -> Result<InstallReport> {
         &staging.join("examples").join("scoped-batch.json"),
         SCOPED_BATCH,
     )?;
+    write(
+        &staging.join("examples").join("live-batch.json"),
+        LIVE_BATCH,
+    )?;
     let install_sh = staging.join("scripts").join("install.sh");
     write(&install_sh, INSTALL_SH)?;
     make_executable(&install_sh)?;
@@ -96,6 +101,7 @@ fn install_at(target_root: &Path, force: bool) -> Result<InstallReport> {
             "SKILL.md",
             "examples/canary-batch.json",
             "examples/scoped-batch.json",
+            "examples/live-batch.json",
             "scripts/install.sh",
             "scripts/install.ps1",
         ],

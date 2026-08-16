@@ -1,6 +1,6 @@
 [package]
 name = "membridge"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2024"
 rust-version = "1.87"
 description = "Deterministic, bounded process-memory inspection for humans and AI agents"
@@ -9,7 +9,7 @@ repository = "https://github.com/sharkone/membridge"
 default-run = "membridge"
 
 [workspace]
-members = ["test-support/synthetic-capture-target"]
+members = ["test-support/synthetic-target"]
 
 [dependencies]
 aho-corasick = "1.1.3"
@@ -27,8 +27,10 @@ windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Kernel",
     "Win32_System_Memory",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }
 

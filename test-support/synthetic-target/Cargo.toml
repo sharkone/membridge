@@ -1,9 +1,9 @@
 [package]
-name = "synthetic-capture-target"
+name = "synthetic-target"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Windows-only behavioral-test helper process for membridge; never a public command."
+description = "Behavioral-test helper process for membridge; never a public command."
 
 # A separate workspace package (not a `[[bin]]` inside the `membridge`
 # package) so `dist` never ships it as a release artifact: dist enumerates
