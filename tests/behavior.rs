@@ -1079,8 +1079,18 @@ fn portable_marketplace_exposes_the_canonical_versioned_skill() {
     let catalog: Value =
         serde_json::from_str(include_str!("../.claude-plugin/marketplace.json")).unwrap();
     assert_eq!(catalog["name"], "membridge");
-    let plugin_version = format!("{}.skill.1", env!("CARGO_PKG_VERSION"));
-    assert_eq!(catalog["metadata"]["version"], plugin_version);
+    // The revision moves independently: it increments for a marketplace-visible skill
+    // change without a binary version bump, and resets to 1 when the binary version
+    // changes. Pin the format and the agreement between both fields, not the digit.
+    let plugin_version = catalog["metadata"]["version"].as_str().unwrap();
+    let prefix = format!("{}.skill.", env!("CARGO_PKG_VERSION"));
+    let revision = plugin_version
+        .strip_prefix(&prefix)
+        .unwrap_or_else(|| panic!("catalog version {plugin_version} starts with {prefix}"));
+    assert!(
+        revision.parse::<u32>().is_ok_and(|revision| revision >= 1),
+        "catalog revision is a positive integer: {revision}"
+    );
 
     let plugin = &catalog["plugins"][0];
     assert_eq!(plugin["name"], "membridge");
