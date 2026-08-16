@@ -29,17 +29,19 @@ The default engine must never acquire write, execution, injection, or process-co
 
 ## Current implementation
 
-The first vertical slice is complete:
+The offline vertical slice, project/skill packaging, Windows capture, and typed
+deterministic patterns are complete:
 
 - Rust single binary;
 - internal read-only `MemorySource` and `ProcessMemory` interfaces;
 - mmap-backed Windows x64 minidump parser;
-- normalized regions, modules, and coverage;
-- tagged exact-byte batch scanner;
-- deterministic match quotas;
+- normalized regions, modules, and coverage, with stable lowercase protection and type names;
+- tagged batch scanner over exact bytes, integers, floats, UTF-8, UTF-16LE, and masks;
+- bounded module, region, address-range, protection, and type scan scopes;
+- deterministic match quotas and scope-ordered continuation;
 - bounded gap-aware reads;
-- compact schema-v2 JSON;
-- synthetic behavioral fixture;
+- compact schema-v3 JSON;
+- synthetic behavioral fixture with planted typed values;
 - stable source-derived coverage limitation codes;
 - embedded portable Agent Skill;
 - version-matched skill installation through the OMP marketplace or common user-level `.agents/skills` location;
@@ -55,37 +57,21 @@ membridge skill install
 membridge capture minidump
 ```
 
-## Active milestone: Typed deterministic patterns
+## Active milestone: Stateful daemon and result sets
 
-Extend scan specifications without introducing a general expression language:
+Introduce state only where persisted results or live targets require it:
 
-- signed and unsigned integers;
-- explicit width and endianness;
-- `f32` and `f64` bit patterns;
-- UTF-8 and UTF-16LE strings;
-- byte/nibble masks;
-- tagged batching across all kinds.
-- explicit module, region, address-range, and metadata-backed protection/type scan scopes.
+- per-user local daemon with auto-start and compatible-version negotiation;
+- same-user local IPC and no TCP listener;
+- asynchronous cancellable jobs;
+- opaque source, session, job, and result IDs;
+- pagination and server-side filter/union/intersection/difference;
+- strong source fingerprints and invalidation;
+- persistent non-sensitive metadata and indexes.
 
-No automatic secret classification or implicit transformations.
-Scopes compose by deterministic intersection. A scope that depends on unavailable metadata fails explicitly rather than guessing; no general filter expression language is introduced.
+The CLI remains the public contract; the daemon stays an implementation detail behind the same commands and JSON schema.
 
 ## Following milestones
-
-### Stateful daemon and result sets
-
-Introduce the daemon only when persisted results or live targets need it:
-
-- per-user auto-start;
-- same-user local IPC;
-- no TCP listener;
-- asynchronous cancellable jobs;
-- source/session/result IDs;
-- server-side result set algebra;
-- persistent non-sensitive metadata and indexes;
-- no persisted literal patterns or memory previews.
-
-The CLI remains the public contract. The daemon is an implementation detail.
 
 ### Direct Windows live source
 
@@ -166,6 +152,57 @@ The dump is written to a same-directory staging path and published with `MoveFil
 
 Virtual addresses are serialized as fixed-width hexadecimal strings. They must never pass through lossy JSON floating-point numbers.
 
+### Typed patterns
+
+Scan specifications are versioned separately from the response protocol and are now
+`schema: 2`. A `schema: 1` specification is rejected with a message naming the
+migration; no compatibility path accepts both shapes. Every pattern carries a `tag`,
+an optional `alignment`, and exactly one `value` object whose `kind` is `bytes`,
+`int`, `float`, `utf8`, `utf16le`, or `masked`. Unknown kinds and unknown fields are
+rejected at deserialization, and every specification failure - malformed JSON
+included - reports `INVALID_SCAN_SPEC`.
+
+Numeric values are strings so 64-bit magnitudes never pass through JSON floats.
+Integers accept decimal or `0x` hexadecimal with an optional sign and must fit the
+declared width and signedness. Floats are encoded as the nearest representable
+`f32`/`f64` bit pattern; `NaN` is rejected because it has no single representation.
+
+A masked pattern compares `found & mask == value` per byte, so masks are nibble- and
+bit-granular. Value bits outside the mask must be zero, and a mask must contain at
+least one `0xff` byte: that byte run is the literal Aho-Corasick anchor, which keeps
+one automaton pass over source bytes for every kind and avoids an unbounded per-byte
+fallback scan. All kinds share the anchor mechanism - an exact pattern is its own
+anchor - so mixed batches still scan each captured span once, and a match is retained
+only when every one of its bytes lies inside the same captured readable slice.
+
+### Scan scopes
+
+An optional `scope` object narrows a scan to explicit `modules`, `regions`, `ranges`,
+`protections`, and `types`. Selectors inside a category form a union, categories
+intersect, and an omitted category adds no constraint. A present but empty category,
+and an empty `scope` object, are rejected rather than silently interpreted. Each
+category accepts at most 32 selectors (`scan::MAX_SCOPE_SELECTORS`).
+
+Resolution never guesses. A module selector matches a full image path or a bare file
+name case-insensitively and must resolve to exactly one captured module; zero or
+several matches, and unknown region ids, report `UNRESOLVED_SCOPE`. `protections` and
+`types` require region metadata and report `SCOPE_METADATA_UNAVAILABLE` when the source
+has none, instead of scanning an unproven scope. Protection selectors are validated
+against `source::PROTECTION_NAMES` and type selectors against `source::TYPE_NAMES`, so
+a typo fails instead of quietly matching nothing.
+
+Region protection is therefore serialized as lowercase Windows flag names joined by
+`" | "` (for example `page_readwrite`), with undocumented bits rendered as hexadecimal.
+That replaced a derived `Debug` rendering and is an intentional incompatible response
+change: `protocol::SCHEMA_VERSION` is now `3`.
+
+Scopes are resolved into a sorted, merged, non-overlapping interval list, so
+overlapping selectors neither duplicate nor omit matches, `scanned_bytes` counts each
+captured readable byte once, and match order and `next_address` stay ascending within
+the scope regardless of how spans are visited. The report echoes `applied`,
+`interval_count`, `selected_bytes` (the intersection size, `null` when unscoped), and
+`scanned_bytes` (captured readable bytes actually examined).
+
 ### Coverage
 
 Missing memory is distinct from a negative match. Every scan exposes both scan completion and source coverage completion. Coverage reports preserve exact known byte counts and a deterministic list of at most four stable limitation codes:
@@ -228,3 +265,13 @@ A capability is complete only when:
 - Rewriting `captured_overlap`, `build_scan_extents`, and `attributed_match` to use sorted-merge or binary-search lookups instead of nested linear scans, now that counts are capped; deferred because the caps already bound worst-case cost and a full rewrite is unwarranted algorithmic churn without a demonstrated need.
 - The exact VMM licensing and packaging model.
 - Whether a future UI is justified after the CLI and skill workflows mature.
+
+## Rejected scope
+
+Deliberately out of scope until an approved plan change says otherwise:
+
+- masked patterns with no fully known byte (an all-nibble mask): rejected because every alternative needs an unbounded per-offset fallback scan; callers can widen one byte of the mask instead;
+- regular expressions, fuzzy module matching, Boolean scope expressions, or any general filter language;
+- implicit writable/executable scope policy and automatic scope selection;
+- implicit value transformations such as Base64, XOR, compression, or project formats: those stay caller workflows;
+- automatic type inference or decoding of matched memory.

@@ -19,7 +19,8 @@ The project is an early public prototype. Its first source is Windows x64 user-m
 Sending arbitrary memory to a language model is unsafe, expensive, and usually useless. Membridge keeps bulk memory local and returns only bounded evidence:
 
 - explicit capture coverage and gaps;
-- tagged exact-byte matches;
+- tagged matches for typed, string, and masked values;
+- bounded, explicit scan scopes;
 - virtual addresses, modules, RVAs, and region metadata;
 - deterministic match limits and continuation points;
 - small caller-requested byte windows.
@@ -40,12 +41,15 @@ flowchart LR
 - BLAKE3 source fingerprints.
 - Region state, protection, type, and capture coverage.
 - Module names, image bases, sizes, timestamps, and match RVAs.
-- Tagged batches of 1–64 exact byte patterns.
+- Tagged batches of 1–64 patterns: exact bytes, integers, floats, UTF-8, UTF-16LE, and masks.
+- Explicit integer width, signedness, and byte order; exact `f32`/`f64` bit patterns.
+- Byte- and nibble-granular masked patterns.
+- Bounded scan scopes over modules, regions, address ranges, protection classes, and memory types.
 - Overlapping and page-boundary matches.
 - Per-pattern alignment constraints.
 - Deterministic result ordering and hard match quotas.
 - Gap-aware reads capped at 65,536 bytes.
-- One compact schema-v2 JSON object per command.
+- One compact schema-v3 JSON object per command.
 - A version-matched portable Agent Skill embedded in the binary.
 
 ## Deliberate boundaries
@@ -55,8 +59,8 @@ Membridge does not currently:
 - attach to or live-scan running processes (only a one-shot Windows capture is supported);
 - write, allocate, protect, suspend, or execute memory;
 - resolve PDB symbols;
-- disassemble or infer structures;
-- scan typed values, masked patterns, pointers, or YARA rules;
+- disassemble, decode values it finds, or infer structures;
+- scan pointers or YARA rules, or refine results across captures;
 - classify sensitive data automatically;
 - send telemetry or contact network services.
 
@@ -125,7 +129,7 @@ Command execution emits one compact JSON object. Standard metadata flags such as
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "ok": true,
   "command": "inspect",
   "data": {}
@@ -161,23 +165,60 @@ A dump may parse successfully while omitting readable process memory. Membridge 
 
 Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. In that case, zero unavailable bytes does not prove complete coverage.
 
-## Scan exact representations
+## Scan typed representations
 
-Create a versioned specification:
+Create a versioned specification. Each pattern has a `tag`, an optional
+`alignment` (default 1), and one typed `value`:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "patterns": [
     {
       "tag": "canary.utf8",
-      "bytes_hex": "4d42524944474521",
+      "value": { "kind": "utf8", "text": "MBRIDGE!" },
       "alignment": 1
+    },
+    {
+      "tag": "handle.u32",
+      "value": {
+        "kind": "int",
+        "number": "0xdeadbeef",
+        "width": 32,
+        "signed": false,
+        "endian": "little"
+      },
+      "alignment": 4
+    },
+    {
+      "tag": "canary.masked",
+      "value": {
+        "kind": "masked",
+        "bytes_hex": "4d42000000004521",
+        "mask_hex": "ffff00000000ffff"
+      }
     }
   ],
   "max_matches": 10000
 }
 ```
+
+| kind | fields | bytes searched |
+|---|---|---|
+| `bytes` | `bytes_hex` | those exact bytes |
+| `int` | `number`, `width` (8/16/32/64), `signed`, `endian` (`little`/`big`) | two's-complement encoding |
+| `float` | `number`, `width` (32/64), `endian` | IEEE-754 bit pattern |
+| `utf8` | `text` | UTF-8 encoding |
+| `utf16le` | `text` | UTF-16LE encoding |
+| `masked` | `bytes_hex`, `mask_hex` | bytes compared as `found & mask_hex == bytes_hex` |
+
+`number` is a string so 64-bit values never pass through lossy JSON floats.
+Integers accept decimal or `0x` hexadecimal with an optional leading `-` and must
+fit the declared width and signedness. Floats accept forms such as `"3.5"`,
+`"1e-3"`, `"inf"`, and `"-inf"`, are encoded as the nearest representable value,
+and reject `NaN`, which has no single byte representation. Masks may be nibble- or
+bit-granular; value bits outside the mask must be zero, and a mask needs at least
+one fully known (`ff`) byte.
 
 Then scan:
 
@@ -191,7 +232,57 @@ For sensitive values, prefer a protected file or stdin instead of command-line a
 membridge scan capture.dmp --spec - < scan.json
 ```
 
-Interpret the result using both dimensions:
+### Narrow the scan scope
+
+An optional `scope` restricts the scan to captured readable bytes inside an
+explicit address space. Categories intersect, selectors within a category form a
+union, and an omitted category adds no constraint:
+
+```json
+{
+  "schema": 2,
+  "patterns": [{ "tag": "canary.utf8", "value": { "kind": "utf8", "text": "MBRIDGE!" } }],
+  "scope": {
+    "modules": ["fixture.exe"],
+    "regions": [0],
+    "ranges": [{ "start": "0x140000000", "length": "0x2000" }],
+    "protections": ["page_readwrite"],
+    "types": ["private"]
+  },
+  "max_matches": 10000
+}
+```
+
+- `modules` accepts a full image path or a bare file name, compared
+  case-insensitively. A selector matching no captured module, or more than one,
+  fails with `UNRESOLVED_SCOPE` instead of guessing.
+- `regions` uses the `id` values `inspect` reports; an unknown id fails.
+- `ranges` takes decimal or `0x` `start`/`length` strings with positive length.
+- `protections` and `types` need region metadata; without it the scan fails with
+  `SCOPE_METADATA_UNAVAILABLE` rather than scanning an unproven scope.
+- At most 32 selectors per category.
+
+A match is reported only when all of its bytes lie inside the scope, so a value
+straddling a scope edge is omitted rather than half-matched. The report echoes
+the resolution:
+
+```json
+{
+  "applied": ["modules", "protections"],
+  "interval_count": 1,
+  "selected_bytes": 8192,
+  "scanned_bytes": 8192
+}
+```
+
+`selected_bytes` is the size of the intersection and is `null` for an unscoped
+scan; `scanned_bytes` counts the captured readable bytes actually examined. A
+large `selected_bytes` with a small `scanned_bytes` means the capture omitted most
+of the requested scope.
+
+### Interpret the result
+
+Use both dimensions:
 
 - `scan_complete` says whether scanning exhausted the selected captured scope;
 - `coverage_complete` says whether the capture contained all expected readable memory.
@@ -305,13 +396,13 @@ Only use Membridge on processes and captures you are authorized to inspect.
 ```text
 src/source/       acquisition-neutral read-only interfaces and minidump adapter
 src/capture.rs    Windows-only MiniDumpWriteDump live-process capture
-src/scan.rs       deterministic tagged exact-byte scanner
-src/protocol.rs   schema-v2 success and failure envelopes
+src/scan.rs       deterministic typed, masked, and scoped scanner
+src/protocol.rs   schema-v3 success and failure envelopes
 src/skill.rs      version-matched embedded skill installer
 src/main.rs       compact CLI surface
 .agents/skills/   canonical portable AI workflow knowledge
 .claude-plugin/    Claude Code-compatible marketplace catalog loaded by OMP
-tests/            behavioral source, scanner, quota, read, CLI, and skill tests
+tests/            behavioral source, scanner, scope, quota, read, CLI, and skill tests
 examples/         deterministic fixture and runnable demo
 ```
 
@@ -334,17 +425,28 @@ membridge skill install --force
 
 ### Deterministic demo
 
-The repository includes a synthetic Windows AMD64 minidump generator. Its fixture contains two readable canaries, one canary crossing a page boundary, an identical no-access decoy, and one missing readable region.
+The repository includes a synthetic Windows AMD64 minidump generator. Its fixture contains two readable UTF-8 canaries, one of them crossing a page boundary, a UTF-16LE copy, planted little- and big-endian integers and floats, an identical no-access decoy, and one missing readable region.
 
 ```sh
 ./examples/demo.sh
 ```
 
-The expected scan matches are:
+The demo runs both shipped specifications. `examples/canary-batch.json` matches the UTF-8, UTF-16LE, and masked canaries:
 
 ```text
-0x0000000140000100
-0x0000000140000ffc
+0x0000000140000100  membridge-canary.masked, membridge-canary.utf8
+0x0000000140000230  membridge-canary.utf16le
+0x0000000140000ffc  membridge-canary.masked, membridge-canary.utf8
+```
+
+`examples/scoped-batch.json` scopes the scan to the `fixture.exe` module intersected with `page_readwrite` regions and matches the planted typed values:
+
+```text
+0x0000000140000200  u32.le
+0x0000000140000208  i64.le
+0x0000000140000218  f32.le
+0x0000000140000220  f64.le
+0x0000000140000228  u16.be
 ```
 
 The no-access decoy is excluded, and coverage reports 4,096 unavailable readable bytes.

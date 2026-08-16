@@ -14,10 +14,11 @@ Shipped capabilities:
 
 - Windows x64 user-mode minidump import;
 - memory regions, modules, and explicit coverage;
-- tagged exact-byte batch scanning;
+- tagged batch scanning of typed, string, and masked representations;
+- bounded module, region, range, protection, and type scan scopes;
 - deterministic match limits;
 - bounded gap-aware reads;
-- compact schema-v2 JSON;
+- compact schema-v3 JSON;
 - embedded Agent Skill installation.
 
 Before changing behavior, read:
@@ -68,11 +69,11 @@ Do not add telemetry, symbol downloads, update checks, remote listeners, or outb
 
 ```text
 src/error.rs             stable internal errors and protocol codes
-src/protocol.rs          schema-v2 JSON envelopes
+src/protocol.rs          schema-v3 JSON envelopes
 src/source/mod.rs        read-only acquisition-neutral traits and models
 src/source/minidump.rs   Windows x64 minidump adapter
 src/capture.rs           Windows-only MiniDumpWriteDump live-process capture
-src/scan.rs              deterministic exact-byte scanner
+src/scan.rs              deterministic typed, masked, and scoped scanner
 src/skill.rs             embedded version-matched skill installer
 src/main.rs              public CLI
 .agents/skills/          canonical portable Agent Skill
@@ -163,6 +164,8 @@ Behavioral tests should defend observable contracts:
 - partial coverage;
 - readable versus no-access memory;
 - overlapping and page-boundary matches;
+- typed integer, float, string, and masked encoding, including rejected values;
+- scope resolution, intersection, and unresolvable selectors;
 - deterministic ordering;
 - match-limit incompleteness;
 - gap-aware reads;

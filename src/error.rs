@@ -16,6 +16,10 @@ pub enum Error {
     MissingMemory,
     #[error("invalid scan specification: {0}")]
     InvalidSpec(String),
+    #[error("unresolved scan scope: {0}")]
+    UnresolvedScope(String),
+    #[error("scan scope requires unavailable source metadata: {0}")]
+    ScopeMetadataUnavailable(String),
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
     #[error("could not determine the user home directory: {0}")]
@@ -40,6 +44,8 @@ impl Error {
             Self::UnsupportedTarget(_) => "UNSUPPORTED_TARGET",
             Self::MissingMemory => "MISSING_MEMORY",
             Self::InvalidSpec(_) => "INVALID_SCAN_SPEC",
+            Self::UnresolvedScope(_) => "UNRESOLVED_SCOPE",
+            Self::ScopeMetadataUnavailable(_) => "SCOPE_METADATA_UNAVAILABLE",
             Self::InvalidArgument(_) => "INVALID_ARGUMENT",
             Self::HomeDirectoryUnavailable(_) => "HOME_DIRECTORY_UNAVAILABLE",
             Self::SourceInvariant(_) => "SOURCE_INVARIANT",

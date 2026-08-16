@@ -52,6 +52,28 @@ impl ModuleInfo {
     }
 }
 
+/// Canonical lowercase Windows memory-protection flag names. `MemoryRegion::protection`
+/// joins the flags a region carries with `" | "` using exactly these names, and scan
+/// scope selectors are validated against the same list. `minidump::PROTECTION_FLAGS`
+/// is index-aligned with this array.
+pub const PROTECTION_NAMES: [&str; 11] = [
+    "page_noaccess",
+    "page_readonly",
+    "page_readwrite",
+    "page_writecopy",
+    "page_execute",
+    "page_execute_read",
+    "page_execute_readwrite",
+    "page_execute_writecopy",
+    "page_guard",
+    "page_nocache",
+    "page_writecombine",
+];
+
+/// Canonical normalized `MemoryRegion::kind` values. A region whose type metadata is
+/// absent reports `"unknown"`, which is deliberately not selectable.
+pub const TYPE_NAMES: [&str; 3] = ["private", "mapped", "image"];
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryRegion {
     pub id: usize,

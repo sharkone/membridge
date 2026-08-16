@@ -1,15 +1,24 @@
 {
-  "schema": 1,
+  "schema": 2,
   "patterns": [
     {
       "tag": "membridge-canary.utf8",
-      "bytes_hex": "4d42524944474521",
+      "value": { "kind": "utf8", "text": "MBRIDGE!" },
       "alignment": 1
     },
     {
       "tag": "membridge-canary.utf16le",
-      "bytes_hex": "4d004200520049004400470045002100",
+      "value": { "kind": "utf16le", "text": "MBRIDGE!" },
       "alignment": 2
+    },
+    {
+      "tag": "membridge-canary.masked",
+      "value": {
+        "kind": "masked",
+        "bytes_hex": "4d42000000004521",
+        "mask_hex": "ffff00000000ffff"
+      },
+      "alignment": 1
     }
   ],
   "max_matches": 10000

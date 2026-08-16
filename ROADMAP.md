@@ -11,8 +11,8 @@ This document describes milestone order. GitHub issues contain implementation ta
 | M0: Offline vertical slice | Complete | Windows x64 minidump inspection, exact scanning, bounded reads, JSON contract | — |
 | M1: Project and Agent Skill | Complete | Maintained public repository, embedded skill, CI, examples, explicit coverage limitations, and alpha release packaging | [#10](https://github.com/sharkone/membridge/issues/10), [#15](https://github.com/sharkone/membridge/issues/15), [#18](https://github.com/sharkone/membridge/issues/18), [#22](https://github.com/sharkone/membridge/issues/22) |
 | M2: Windows minidump capture | Complete | Authorized PID to full process minidump to cross-platform analysis | [#5](https://github.com/sharkone/membridge/issues/5) |
-| M3: Typed deterministic patterns | Active | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
-| M4: Stateful daemon and result sets | Planned | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
+| M3: Typed deterministic patterns | Complete | Integers, floats, strings, masks, tagged batches, and explicit scan scopes | [#9](https://github.com/sharkone/membridge/issues/9), [#12](https://github.com/sharkone/membridge/issues/12) |
+| M4: Stateful daemon and result sets | Active | Jobs, sessions, persistence, bounded set algebra | [#7](https://github.com/sharkone/membridge/issues/7) |
 | M5: Direct Windows live source | Planned | Read-only external process scans with honest volatility semantics | [#4](https://github.com/sharkone/membridge/issues/4) |
 | M6: Known-value refinement | Planned | Changed/unchanged/increased/decreased candidate narrowing | [#8](https://github.com/sharkone/membridge/issues/8) |
 | M7: Stable pointer chains | Planned | Bounded module-rooted paths validated across snapshots | [#6](https://github.com/sharkone/membridge/issues/6) |
@@ -99,17 +99,32 @@ Exit evidence:
 
 ## M3: Typed deterministic patterns
 
-Add compact mechanisms needed by skills:
+Delivered:
 
-- integers with explicit signedness, width, and endianness;
-- exact `f32` and `f64` representations;
-- explicit UTF-8 and UTF-16LE strings;
-- masked bytes;
-- one-pass tagged batches across kinds.
-- deterministic module, region, address-range, and metadata-backed protection/type scopes.
+- scan specification `schema: 2`, with `schema: 1` rejected in favour of one explicit typed shape;
+- per-pattern `value` kinds `bytes`, `int`, `float`, `utf8`, `utf16le`, and `masked`;
+- integers with explicit width, signedness, and endianness, validated against the declared range;
+- exact `f32`/`f64` bit patterns from string numbers, with `NaN` rejected as unrepresentable;
+- byte- and nibble-granular masks anchored on at least one fully known byte;
+- one Aho-Corasick pass per captured span across every kind in a mixed batch;
+- bounded `modules`, `regions`, `ranges`, `protections`, and `types` scope selectors composing by intersection;
+- stable lowercase region protection names, replacing a derived `Debug` rendering (schema v3);
+- `UNRESOLVED_SCOPE` and `SCOPE_METADATA_UNAVAILABLE` errors instead of guessed or silently empty scopes;
+- a scope report carrying `applied`, `interval_count`, `selected_bytes`, and `scanned_bytes`;
+- one stable `INVALID_SCAN_SPEC` code for every specification failure, including malformed JSON.
 
-Keep transformations caller-controlled. Base64, XOR, compression, and project formats are skill workflows, not implicit engine policy.
-Scope selectors compose by intersection, remain bounded, and fail explicitly when required metadata is unavailable.
+Non-goals:
+
+- regular expressions, fuzzy module matching, or a Boolean filter language;
+- implicit writable/executable policy or automatic scope selection;
+- implicit value transformations (Base64, XOR, compression, project formats).
+
+Exit evidence:
+
+- behavioral tests cover typed width/signedness/endianness encoding, mixed-kind batching, masked byte and nibble matching, malformed masks, out-of-range and NaN values, every scope category, category intersection, overlapping ranges, boundary-spanning exclusion, scoped match-limit continuation, ambiguous and unknown module selectors, unknown region ids, and missing protection/type metadata;
+- the CLI reports one stable code per specification failure and echoes the resolved scope;
+- `./examples/demo.sh` runs both shipped specifications against the synthetic fixture, matching the UTF-8, UTF-16LE, and masked canaries unscoped and the planted typed values under a module-and-protection scope;
+- formatting, Clippy, and the complete test suite pass on the supported development host.
 
 ## M4: Stateful daemon and result sets
 

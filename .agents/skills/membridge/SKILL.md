@@ -1,6 +1,6 @@
 ---
 name: membridge
-description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding known byte representations, checking memory coverage, attributing addresses, reading small windows around matches, or capturing a live Windows process into an analyzable minidump.
+description: Inspect and deterministically scan authorized Windows x64 process minidumps with bounded, coverage-aware output. Use for finding typed integer, float, string, byte, or masked values in memory, scoping a scan to one module, region, address range, protection class, or memory type, checking memory coverage, attributing addresses, reading small windows around matches, or capturing a live Windows process into an analyzable minidump.
 compatibility: Requires the version-matched membridge executable on PATH.
 ---
 
@@ -42,47 +42,132 @@ membridge inspect <capture.dmp>
 - expected, captured, and unavailable readable bytes;
 - explicit coverage limitations.
 
-### Scan exact byte representations
+### Scan typed representations
 
 ```sh
 membridge scan <capture.dmp> --spec <scan.json|->
 ```
 
-`scan` accepts a tagged batch of exact byte patterns and reports:
+`scan` accepts one tagged batch of typed patterns, scans the selected captured
+bytes once, and reports:
 
 - deterministically ordered, overlapping matches;
 - per-pattern alignment constraints;
 - module and RVA attribution when a match falls inside a module;
 - region attribution when metadata is available;
+- the resolved scan scope;
 - a hard match quota and deterministic continuation address;
 - scan completion and capture coverage as separate states.
 
-Example specification:
+Every pattern carries a `tag`, an optional `alignment` (default 1), and one
+`value` object naming its kind:
+
+| kind | fields | bytes searched |
+|---|---|---|
+| `bytes` | `bytes_hex` | those exact bytes |
+| `int` | `number`, `width` (8/16/32/64), `signed`, `endian` (`little`/`big`) | two's-complement encoding |
+| `float` | `number`, `width` (32/64), `endian` | IEEE-754 bit pattern |
+| `utf8` | `text` | UTF-8 encoding |
+| `utf16le` | `text` | UTF-16LE encoding |
+| `masked` | `bytes_hex`, `mask_hex` | bytes compared under the mask |
+
+`number` is a string, so 64-bit values never pass through lossy JSON floats:
+integers accept decimal or `0x` hexadecimal with an optional leading `-`, and
+floats accept forms such as `"3.5"`, `"-0.5"`, `"1e-3"`, `"inf"`, and `"-inf"`.
+A float value is encoded as the nearest representable `f32`/`f64` and then
+matched exactly. `NaN` is rejected because it has no single representation; use
+a `bytes` or `masked` pattern for a specific NaN encoding.
+
+A `masked` pattern compares `found & mask_hex == bytes_hex` byte by byte, so
+masks work at nibble or bit granularity. Value bits outside the mask must be
+zero, and the mask needs at least one fully known (`ff`) byte to anchor the
+search.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "patterns": [
     {
       "tag": "canary.utf8",
-      "bytes_hex": "4d42524944474521",
+      "value": { "kind": "utf8", "text": "MBRIDGE!" },
       "alignment": 1
+    },
+    {
+      "tag": "handle.u32",
+      "value": {
+        "kind": "int",
+        "number": "0xdeadbeef",
+        "width": 32,
+        "signed": false,
+        "endian": "little"
+      },
+      "alignment": 4
     }
   ],
   "max_matches": 10000
 }
 ```
 
+### Narrow a scan to an explicit scope
+
+An optional `scope` object restricts the scan to captured readable bytes inside
+the selected address space. Categories intersect; selectors inside one category
+form a union. An omitted category adds no constraint.
+
+```json
+{
+  "schema": 2,
+  "patterns": [{ "tag": "canary.utf8", "value": { "kind": "utf8", "text": "MBRIDGE!" } }],
+  "scope": {
+    "modules": ["fixture.exe"],
+    "regions": [0],
+    "ranges": [{ "start": "0x140000000", "length": "0x2000" }],
+    "protections": ["page_readwrite"],
+    "types": ["private"]
+  },
+  "max_matches": 10000
+}
+```
+
+- `modules`: a full image path or a bare file name, compared case-insensitively.
+  A selector that matches no captured module, or more than one, fails.
+- `regions`: region `id` values exactly as `inspect` reports them.
+- `ranges`: `start` and `length` as decimal or `0x` strings; length must be
+  positive.
+- `protections`: lowercase Windows flag names such as `page_readwrite` or
+  `page_execute_read`, matched against the flags a region carries.
+- `types`: `private`, `mapped`, or `image`.
+
+A match is reported only when every one of its bytes lies inside the scope, so a
+value straddling a scope edge is omitted rather than partially matched. The
+report echoes the resolved scope:
+
+```json
+{
+  "applied": ["modules", "protections"],
+  "interval_count": 1,
+  "selected_bytes": 8192,
+  "scanned_bytes": 8192
+}
+```
+
+`selected_bytes` is the size of the scope intersection and is `null` when no
+scope was requested; `scanned_bytes` counts the captured readable bytes actually
+examined. A large `selected_bytes` with a small `scanned_bytes` means most of the
+selected scope was never captured.
+
 Limits:
 
 - 1 to 64 patterns;
 - unique, non-empty tags;
-- non-empty hexadecimal bytes;
 - at most 4,096 bytes per pattern;
 - positive alignment;
+- at most 32 selectors per scope category;
 - 1 to 1,000,000 retained matches.
 
-Use `examples/canary-batch.json` as a reusable starting point. For sensitive values, prefer a protected specification file or stdin rather than a command-line argument:
+Use `examples/canary-batch.json` and `examples/scoped-batch.json` as reusable
+starting points. For sensitive values, prefer a protected specification file or
+stdin rather than a command-line argument:
 
 ```sh
 membridge scan <capture.dmp> --spec - < scan.json
@@ -108,16 +193,20 @@ The response includes captured process identity (PID, image path, creation time)
 
 ## Analyses enabled by the current tool
 
-Callers can form explicit bytes and use Membridge to locate:
+Callers choose the values that matter and use Membridge to locate:
 
-- UTF-8, UTF-16LE, or other known string encodings;
-- integer and floating-point bit representations with chosen width and endianness;
+- UTF-8 and UTF-16LE text through explicit string patterns;
+- integers and floats with a chosen width, signedness, and byte order;
+- partially known values through byte or nibble masks;
 - canaries, sentinels, magic values, identifiers, and serialized headers;
-- multiple alternative representations in one tagged scan;
+- several alternative representations in one tagged batch;
+- one module, region, address range, protection class, or memory type at a time;
 - module-relative locations through returned RVAs;
 - small byte windows around promising matches.
 
-These transformations are caller-controlled. Membridge currently scans exact bytes; it does not implicitly encode values or infer types.
+Membridge encodes each declared value into exact bytes and matches those bytes.
+It never infers a type from memory, decodes values it finds, applies Base64, XOR,
+or compression, or chooses a scope on its own.
 
 ## Result semantics
 
@@ -126,7 +215,7 @@ These transformations are caller-controlled. Membridge currently scans exact byt
 - `scan_complete`: the scanner exhausted the selected captured scope;
 - `coverage_complete`: the dump contained every expected readable byte.
 
-`terminal_reason: "match_limit"` means matches are a deterministic prefix and `next_address` identifies where omitted results begin.
+`terminal_reason: "match_limit"` means matches are a deterministic prefix and `next_address` identifies where omitted results begin, in the same ascending order inside the selected scope.
 
 Coverage limitations are:
 
@@ -136,6 +225,14 @@ Coverage limitations are:
 - `KNOWN_READABLE_BYTES_MISSING`.
 
 Missing or unusable metadata is accompanied by `EXPECTED_READABLE_SCOPE_UNPROVEN`. Zero unavailable bytes does not prove complete coverage when expected readable scope is unproven.
+
+Specification and scope failures are distinct and stable:
+
+- `INVALID_SCAN_SPEC`: malformed JSON, unknown kind or field, an out-of-range typed value, NaN, a malformed mask, or a broken limit;
+- `UNRESOLVED_SCOPE`: a module selector matching no captured module or more than one, or an unknown region id;
+- `SCOPE_METADATA_UNAVAILABLE`: `protections` or `types` requested from a source without region metadata.
+
+Narrow a scope with `regions` or `ranges` when metadata is unavailable; never treat an unresolved scope as an empty result.
 
 Useful evidence language:
 
@@ -154,12 +251,12 @@ It does not currently:
 
 - attach to or live-scan a running process (only a one-shot Windows capture is supported);
 - write, allocate, protect, suspend, or execute memory;
-- decode typed values;
+- decode, infer, or interpret the values it finds;
 - resolve symbols or disassemble instructions;
-- scan pointers, masked patterns, or YARA rules;
+- scan pointers, run YARA rules, or refine results across captures;
 - infer structures or crash causes;
 - contact network services.
 
-Every command emits one compact schema-v2 JSON object. Failures contain a stable error code, message, and retryability flag. Do not suppress failures or treat partial output as complete.
+Every command emits one compact schema-v3 JSON object. Failures contain a stable error code, message, and retryability flag. Do not suppress failures or treat partial output as complete.
 
 Only inspect processes and dumps the user is authorized to analyze.

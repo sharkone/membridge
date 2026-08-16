@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- Typed scan patterns. A scan specification is now `schema: 2` and each pattern carries one explicit `value` object: `bytes`, `int` (8/16/32/64-bit, signed or unsigned, little- or big-endian), `float` (exact `f32`/`f64` bit patterns), `utf8`, `utf16le`, or `masked` (byte- and nibble-granular masks). Numbers are strings, so 64-bit values never pass through lossy JSON floats; out-of-range values, `NaN`, malformed masks, and masks without a fully known byte are rejected explicitly. Mixed-kind batches still make one pass over each captured span.
+- Bounded scan scopes. An optional `scope` object narrows a scan to explicit `modules`, `regions`, `ranges`, `protections`, and `types`. Selectors union inside a category and intersect across categories, at most 32 per category, and a match is reported only when every one of its bytes lies inside the selected captured readable scope. The scan report echoes `applied`, `interval_count`, `selected_bytes`, and `scanned_bytes`.
+- New stable errors `UNRESOLVED_SCOPE` (a module selector matching no captured module or more than one, or an unknown region id) and `SCOPE_METADATA_UNAVAILABLE` (`protections` or `types` requested from a source without region metadata).
+- A second shipped skill example, `examples/scoped-batch.json`, demonstrating typed integers and floats under a module-and-protection scope.
+
+### Changed
+
+- Region `protection` is now stable lowercase Windows flag names joined by `" | "` (for example `page_readwrite`) instead of a derived `Debug` rendering; undocumented bits are reported as hexadecimal. This is an incompatible response change: `protocol.SCHEMA_VERSION` is now `3`.
+- Scan specifications with `schema: 1` are rejected with a migration message; the untyped `bytes_hex` pattern shape is gone.
+- Every scan-specification failure, including malformed JSON and unknown pattern kinds or fields, now reports the single stable `INVALID_SCAN_SPEC` code.
+- The synthetic fixture plants little- and big-endian integers, `f32`/`f64` values, and a UTF-16LE canary, and `./examples/demo.sh` exercises both shipped specifications.
+
 ## [0.1.0-alpha.2] - 2026-08-14
 
 ### Added

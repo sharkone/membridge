@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "patterns": [
+    {
+      "tag": "u32.le",
+      "value": {
+        "kind": "int",
+        "number": "0xdeadbeef",
+        "width": 32,
+        "signed": false,
+        "endian": "little"
+      },
+      "alignment": 4
+    },
+    {
+      "tag": "i64.le",
+      "value": {
+        "kind": "int",
+        "number": "-2",
+        "width": 64,
+        "signed": true,
+        "endian": "little"
+      },
+      "alignment": 8
+    },
+    {
+      "tag": "u16.be",
+      "value": {
+        "kind": "int",
+        "number": "4660",
+        "width": 16,
+        "signed": false,
+        "endian": "big"
+      },
+      "alignment": 1
+    },
+    {
+      "tag": "f32.le",
+      "value": { "kind": "float", "number": "3.5", "width": 32, "endian": "little" },
+      "alignment": 4
+    },
+    {
+      "tag": "f64.le",
+      "value": { "kind": "float", "number": "-0.5", "width": 64, "endian": "little" },
+      "alignment": 8
+    }
+  ],
+  "scope": {
+    "modules": ["fixture.exe"],
+    "protections": ["page_readwrite"]
+  },
+  "max_matches": 10000
+}

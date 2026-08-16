@@ -169,7 +169,10 @@ fn run(command: Command) -> Result<serde_json::Value> {
             serde_json::to_value(Success::new("inspect", data)).map_err(Error::from)
         }
         Command::Scan { dump, spec } => {
-            let spec: ScanSpec = serde_json::from_str(&read_spec(&spec)?)?;
+            // Every specification problem - malformed JSON, unknown pattern kind,
+            // missing field - reports the same stable INVALID_SCAN_SPEC code.
+            let spec: ScanSpec = serde_json::from_str(&read_spec(&spec)?)
+                .map_err(|error| Error::InvalidSpec(error.to_string()))?;
             let source = MinidumpSource::open(dump)?;
             let process = source.open_process(&source.processes()[0].id)?;
             let report = scan(process.as_ref(), &spec)?;

@@ -13,7 +13,7 @@ use minidump::{
 
 use super::{
     Address, Coverage, CoverageLimitation, MAX_COVERAGE_LIMITATIONS, MemoryRegion, MemorySource,
-    ModuleInfo, ProcessInfo, ProcessMemory, ReadSegment, SourceInfo,
+    ModuleInfo, PROTECTION_NAMES, ProcessInfo, ProcessMemory, ReadSegment, SourceInfo,
 };
 use crate::{Error, Result};
 
@@ -478,8 +478,48 @@ fn state_name(state: MemoryState) -> &'static str {
     }
 }
 
+/// Index-aligned with `super::PROTECTION_NAMES`.
+const PROTECTION_FLAGS: [MemoryProtection; PROTECTION_NAMES.len()] = [
+    MemoryProtection::PAGE_NOACCESS,
+    MemoryProtection::PAGE_READONLY,
+    MemoryProtection::PAGE_READWRITE,
+    MemoryProtection::PAGE_WRITECOPY,
+    MemoryProtection::PAGE_EXECUTE,
+    MemoryProtection::PAGE_EXECUTE_READ,
+    MemoryProtection::PAGE_EXECUTE_READWRITE,
+    MemoryProtection::PAGE_EXECUTE_WRITECOPY,
+    MemoryProtection::PAGE_GUARD,
+    MemoryProtection::PAGE_NOCACHE,
+    MemoryProtection::PAGE_WRITECOMBINE,
+];
+
+/// Renders a region's protection as stable lowercase flag tokens joined by `" | "`,
+/// so callers and scope selectors never depend on a derived `Debug` rendering. Bits
+/// outside the documented flag set are reported verbatim as hexadecimal rather than
+/// dropped.
 fn protection_name(protection: MemoryProtection) -> String {
-    format!("{protection:?}").to_ascii_lowercase()
+    let mut known = MemoryProtection::empty();
+    let mut rendered = String::new();
+    for (flag, name) in PROTECTION_FLAGS.into_iter().zip(PROTECTION_NAMES) {
+        known |= flag;
+        if protection.contains(flag) {
+            if !rendered.is_empty() {
+                rendered.push_str(" | ");
+            }
+            rendered.push_str(name);
+        }
+    }
+    let unknown = protection.bits() & !known.bits();
+    if unknown != 0 {
+        if !rendered.is_empty() {
+            rendered.push_str(" | ");
+        }
+        rendered.push_str(&format!("0x{unknown:x}"));
+    }
+    if rendered.is_empty() {
+        rendered.push_str("none");
+    }
+    rendered
 }
 
 fn kind_name(kind: MemoryType) -> &'static str {

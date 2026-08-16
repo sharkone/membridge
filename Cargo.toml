@@ -1,6 +1,6 @@
 [package]
 name = "membridge"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2024"
 rust-version = "1.87"
 description = "Deterministic, bounded process-memory inspection for humans and AI agents"
