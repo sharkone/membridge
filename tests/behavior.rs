@@ -1173,7 +1173,7 @@ fn capture_minidump_writes_an_analyzable_dump_from_a_live_process() {
         .clone();
     let captured: Value = serde_json::from_slice(&captured).unwrap();
     assert_eq!(captured["command"], "capture.minidump");
-    assert_eq!(captured["schema"], 2);
+    assert_eq!(captured["schema"], 3);
     let data = &captured["data"];
     assert_eq!(data["process"]["pid"].as_u64().unwrap(), target.id() as u64);
     assert!(

@@ -298,8 +298,10 @@ fn scan_slice(
         if end > slice.len() {
             continue;
         }
-        if let Some(mask) = pattern.mask.as_deref()
-            && !matches_mask(&slice[start..end], &pattern.bytes, mask)
+        if pattern
+            .mask
+            .as_deref()
+            .is_some_and(|mask| !matches_mask(&slice[start..end], &pattern.bytes, mask))
         {
             continue;
         }
