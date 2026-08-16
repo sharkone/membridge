@@ -3,9 +3,9 @@
 
 set -eu
 
-VERSION="0.1.0-alpha.2"
-INSTALLER_URL="https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-installer.sh"
-INSTALLER_SHA256="fa83d458f684de3a083576faa9506555a779af0445466c27329db09baa98622f"
+VERSION="0.1.0-alpha.3"
+INSTALLER_URL="https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.3/membridge-installer.sh"
+INSTALLER_SHA256="5a5b1bfa5dc0cd90a42342616cdf97e747068ea5f114a43088b375e59733dd51"
 MAX_INSTALLER_BYTES=1048576
 
 fail() {

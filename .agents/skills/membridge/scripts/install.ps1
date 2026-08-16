@@ -9,9 +9,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Version = '0.1.0-alpha.2'
-$ArchiveUrl = 'https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-x86_64-pc-windows-msvc.zip'
-$ArchiveSha256 = '6ea32c5704b134bcfb05381ce1fecca3f149d42bd8cde302d8930b57443d77c2'
+$Version = '0.1.0-alpha.3'
+$ArchiveUrl = 'https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.3/membridge-x86_64-pc-windows-msvc.zip'
+$ArchiveSha256 = '29c6248b0a39a909d75531258800c2bbfb025226c1a327aed14fc607678a4a6c'
 $MaxArchiveBytes = 20MB
 
 if ($PSVersionTable.PSVersion.Major -lt 5) {

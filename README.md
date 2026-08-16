@@ -100,7 +100,7 @@ macOS and Linux:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-installer.sh |
+  https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.3/membridge-installer.sh |
   sh
 
 membridge skill install --force
@@ -109,7 +109,7 @@ membridge skill install --force
 Windows PowerShell:
 
 ```powershell
-irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.2/membridge-installer.ps1 | iex
+irm https://github.com/sharkone/membridge/releases/download/v0.1.0-alpha.3/membridge-installer.ps1 | iex
 membridge skill install --force
 ```
 
