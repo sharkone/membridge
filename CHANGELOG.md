@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.0-alpha.4] - 2026-08-16
 
 ### Added
 
@@ -110,3 +110,4 @@ Only inspect processes and dumps you are authorized to analyze. An incomplete ca
 [0.1.0-alpha.1]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.1
 [0.1.0-alpha.2]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.3]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.3
+[0.1.0-alpha.4]: https://github.com/sharkone/membridge/releases/tag/v0.1.0-alpha.4
