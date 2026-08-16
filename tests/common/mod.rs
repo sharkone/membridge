@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
@@ -60,11 +60,7 @@ impl SyntheticTarget {
         #[cfg(target_os = "macos")]
         sign_for_debugging(&exe);
 
-        let mut child = Command::new(&exe)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("start synthetic-target");
+        let mut child = spawn_helper(&exe);
         let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
         let mut ready = String::new();
         stdout.read_line(&mut ready).expect("read READY line");
@@ -88,6 +84,34 @@ impl Drop for SyntheticTarget {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Starts the private helper copy, retrying while Linux reports `ETXTBSY`.
+///
+/// `fs::copy` above holds a writable descriptor on this file for a moment. Any other
+/// test thread that forks during that moment inherits the descriptor, and the fork
+/// keeps it open until its own `execve` clears it, so Linux can briefly refuse to
+/// execute this copy. The window is microseconds and cannot be closed from here: it
+/// belongs to unrelated `Command::spawn` calls in sibling tests. Every other error is
+/// a genuine failure and is raised immediately.
+fn spawn_helper(exe: &Path) -> Child {
+    for _ in 0..100 {
+        match Command::new(exe)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => return child,
+            Err(error) if error.kind() == io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => panic!("start synthetic-target: {error}"),
+        }
+    }
+    panic!(
+        "synthetic-target stayed busy for a second: {}",
+        exe.display()
+    );
 }
 
 fn ready_address(line: &str, field: &str) -> u64 {
